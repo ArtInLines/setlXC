@@ -1,0 +1,306 @@
+class global() {
+	static {
+		keywordsToToks := {
+			["class", "Class"],
+			["static", "Static"],
+			["return", "Ret"],
+			["procedure", "Proc"],
+			["cachedProcedure", "CachedProc"],
+			["try", "Try"],
+			["catch", "Catch"],
+			["if", "If"],
+			["else", "Else"]
+		};
+
+		symbolsToToks := [
+			["(", "LParan"],
+			[")", "RParan"],
+			["[", "LBrack"],
+			["]", "RBrack"],
+			["{", "LCurly"],
+			["}", "RCurly"],
+			["<==>", "Equiv"],
+			["<!=>", "Xor"],
+			["=>", "Entail"],
+			["||", "Or"],
+			["&&", "And"],
+			[":=", "Assign"],
+			["==", "Eq"],
+			["!=", "Ne"],
+			["<=", "Le"],
+			[">=", "Ge"],
+			["<", "Lt"],
+			[">", "Gt"],
+			["!", "Not"],
+			["**", "Exp"],
+			["+/", "AddColl"],
+			["*/", "MulColl"],
+			["><", "CartProd"],
+			["+=", "AddAssign"],
+			["-=", "SubAssign"],
+			["*=", "MulAssign"],
+			["/=", "DivAssign"],
+			["%=", "ModAssign"],
+			['\=', "IntDivAssign"],
+			["+", "Add"],
+			["-", "Sub"],
+			["*", "Mul"],
+			["/", "Div"],
+			["%", "Mod"],
+			['\', "IntDiv"],
+			["#", "Hash"],
+			[",", "Comma"],
+			[";", "SemiColon"],
+			[":", "Colon"],
+			["..", "DotDot"],
+			[".", "Dot"]
+		];
+	}
+}
+
+compileErr := procedure(file, start, locStr, msg) {
+	printErr(msg + ":");
+	printErr(file + ':' + start.row + ':' +  start.col + ": '" + locStr + "'");
+	throw("Compiler Error");
+};
+
+startsWith := procedure(str, prefix, strOffset := 0) {
+	if (#str - strOffset < #prefix) {
+		return false;
+	}
+	for (i in {1..#prefix}) {
+		if (str[strOffset + i] != prefix[i]) {
+			return false;
+		}
+	}
+	return true;
+};
+
+class loc(row, col) {
+	row := row;
+	col := col;
+	toStr := procedure() { return row + ":" + col; };
+}
+
+class token(type, start, end, data := om) {
+	type := type;
+	start := start;
+	end := end;
+	data := data;
+
+	displayStr := procedure() {
+		if (data == om) {
+			return type;
+		} else {
+			return type + "('" + data + "')";
+		}
+	};
+}
+
+class lexer(file) {
+	file := file;
+	str := join(readFile(file), "\n");
+	cur := 1;
+	bol := 0;
+	lc := 1;
+	len := #str;
+
+	is_space := procedure(c := str[cur]) {
+		return c == " " || c == "\t" || c == "\n" || c == "\r";
+	};
+
+	is_newline := procedure(c := str[cur]) {
+		return c == "\n";
+	};
+
+	chop_char := procedure() {
+		if (is_newline()) {
+			this.bol := this.cur;
+			this.lc += 1;
+		}
+		this.cur += 1;
+	};
+
+	chop_lc := procedure() {
+		// Line Comment
+		assert(str[cur..cur+1] == "//", "chop_lc should only be called when str[cur..cur+1] == '//' is true");
+		this.cur += 2;
+		while (cur < len && !is_newline(str[cur])) {
+			chop_char();
+		}
+		// Since the loop breaks as soon as cur == len or str[cur] == '\n', it is safe to increment cur
+		this.cur += 1;
+	};
+
+	chop_bc := procedure() {
+		// Block Comment
+		start_cur := cur;
+		start := loc(lc, start_cur - bol);
+		assert(str[cur..cur+1] == "/*", "chop_bc should only be called when str[cur..cur+1] == '/*' is true");
+		this.cur += 2;
+		while (cur <= len) {
+			// Return from function, when block comment is over
+			if (cur < len && str[cur..cur+1] == "*/") {
+				this.cur += 2;
+				return om;
+			}
+			chop_char();
+		}
+		compileErr(file, start, str[start_cur..cur], "Unclosed Block Comment");
+	};
+
+	next_word := procedure() {
+		start := cur;
+		s := str[cur];
+		this.cur += 1;
+		while (cur < len && matches(str[cur], '[a-zA-Z_0-9]')) {
+			s += str[cur];
+			chop_char();
+		}
+
+		start := loc(lc, start - bol);
+		end := loc(lc, cur - bol);
+		if (s in domain(global.keywordsToToks)) {
+			return token(global.keywordsToToks[s], start, end);
+		} else {
+			return token("Iden", start, end, s);
+		}
+	};
+
+	next_num := procedure() {
+		start := cur;
+		s := str[cur];
+		this.cur += 1;
+		isFloat := false;
+		while (cur < len && matches(str[cur], '[0-9.]')) {
+			if (str[cur] == '.') {
+				if (isFloat) {
+					if (str[cur-1] == '.') {
+						// The first dot isn't to mark this num as a float, but to create a range
+						isFloat := false;
+						this.cur -= 1;
+						break;
+					}
+					return compileErr(file, loc(lc, start - bol), str[start..cur], "Only one '.' is allowed for numbers.");
+				}
+				isFloat := true;
+			}
+			s += str[cur];
+			chop_char();
+		}
+
+		start := loc(lc, start - bol);
+		end := loc(lc, cur - bol);
+		if (isFloat) {
+			return token("Float", start, end, s);
+		} else {
+			return token("Int", start, end, s);
+		}
+	};
+
+	next_symbol := procedure() {
+		start := cur;
+		for([sym, tok] in global.symbolsToToks) {
+			if (startsWith(str, sym, cur - 1)) {
+				this.cur += #sym;
+				return token(tok, loc(lc, start - bol), loc(lc, cur + #sym - bol));
+			}
+		}
+		compileErr(file, loc(lc, start - bol), str[start], "Unknown Symbol");
+	};
+
+	next_str := procedure() {
+		start := loc(lc, cur - bol);
+		strDelim := str[cur];
+		this.cur += 1;
+		s := "";
+		while (cur < len && str[cur] != strDelim) {
+			if (strDelim == '"' && str[cur] == '\') {
+				chop_char();
+				if (cur > len) { break; }
+				match (str[cur]) {
+					// List of escape-chars: https://docs.oracle.com/javase/tutorial/java/data/characters.html
+					regex 't': s += "\t";
+					regex 'b': s += "\b";
+					regex 'n': s += "\n";
+					regex 'r': s += "\r";
+					regex 'f': s += "\f";
+					regex '"': s += '"';
+					regex "'": s += "'";
+					regex '\\': s += '\';
+					default: return compileErr(file, start, s + '\' + str[cur], "Invalid Escape Character '" + str[cur] + "'");
+				}
+			} else {
+				s += str[cur];
+			}
+			chop_char();
+		}
+
+		if (cur > len) {
+			return compileErr(file, start, loc(lc, cur - bol), strDelim + s, "Unclosed String");
+		}
+		assert(str[cur] == strDelim, "At the end of the while-loop, it is expected that `str[cur] == strEnd` is true, unless the string is unclosed");
+		chop_char();
+		end := loc(lc, cur - bol);
+		return token("Str", start, end, s);
+	};
+
+	next_token := procedure() {
+		// print("next_token  -  cur=" + cur + ", str[cur]=" + str[cur]);
+		while(cur <= len && is_space()) {
+			chop_char();
+		}
+		if (cur > len) {
+			return om;
+		}
+		if (matches(str[cur], '[a-zA-Z_]')) { return next_word();   }
+		else if (matches(str[cur], '[0-9]')) { return next_num();    }
+		else if (str[cur] == '"') { return next_str(); }
+		else if (str[cur] == "'") { return next_str(); }
+		else if (cur < len && str[cur..cur+1] == "//") {
+			chop_lc();
+			return next_token();
+		}
+		else if (cur < len && str[cur..cur+1] == "/*") {
+			chop_bc();
+			return next_token();
+		}
+		else { return next_symbol(); }
+	};
+
+	lex := procedure() {
+		toks := [];
+		t := next_token();
+		while (t != om) {
+			toks += [t];
+			t := next_token();
+		}
+		return toks;
+	};
+}
+
+compile := procedure(file) {
+	try {
+		l := lexer(file);
+		toks := [x.displayStr() : x in l.lex()];
+		for (t in toks) {
+			print(t);
+		}
+	} catch (e) {
+		printErr(e);
+	}
+};
+
+
+main := procedure() {
+	if (#params < 1) {
+		printErr("Not enough arguments were provided.");
+		printErr();
+		printErr("Usage:");
+		printErr("setlX setlXC.stlx -p <filename>");
+		return;
+	}
+	compile(params[1]);
+};
+
+main();

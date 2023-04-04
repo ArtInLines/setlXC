@@ -1,0 +1,7 @@
+/* s := '
+test
+'; */
+a := 3;
+b := 4;
+	print(s);
+print(a + b);
