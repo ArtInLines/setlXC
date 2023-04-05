@@ -3,6 +3,8 @@ class global() {
 		keywordsToToks := {
 			["class", "Class"],
 			["static", "Static"],
+			["in", "In"],
+			["notin", "Notin"],
 			["return", "Ret"],
 			["procedure", "Proc"],
 			["cachedProcedure", "CachedProc"],
@@ -31,7 +33,7 @@ class global() {
 			[">=", "Ge"],
 			["<", "Lt"],
 			[">", "Gt"],
-			["!", "Not"],
+			["!", "Exclamation"],
 			["**", "Exp"],
 			["+/", "AddColl"],
 			["*/", "MulColl"],
@@ -55,6 +57,44 @@ class global() {
 			["..", "DotDot"],
 			[".", "Dot"]
 		];
+
+		// The higher the precedence, the earlier the operation is evaluated
+		binOpPrecs := {
+			["Assign", 10],
+			["AddAssign", 10],
+			["SubAssign", 10],
+			["MulAssign", 10],
+			["DivAssign", 10],
+			["ModAssign", 10],
+			["IntDivAssign", 10],
+			["Equiv", 20],
+			["Xor", 20],
+			["Entail", 31],
+			["Or", 32],
+			["And", 33],
+			["Le", 35],
+			["Ge", 35],
+			["Lt", 35],
+			["Gt", 35],
+			["In", 35],
+			["Notin", 35],
+			["Eq", 35],
+			["Ne", 35],
+			["Add", 40],
+			["Sub", 40],
+			["Mul", 50],
+			["Div", 50],
+			["Mod", 50],
+			["IntDiv", 50],
+			["CartProd", 50],
+			["AddColl", 60],
+			["MulColl", 60],
+			["Exp", 90]
+		};
+
+		isRightAssoc := procedure(toktype) {
+			return toktype in { "Exp", "Assign", "AddAssign", "SubAssign", "MulAssign", "DivAssign", "ModAssign", "IntDivAssign" };
+		};
 	}
 }
 
@@ -76,9 +116,21 @@ startsWith := procedure(str, prefix, strOffset := 0) {
 	return true;
 };
 
+locToStr := procedure(file_path, start, end) {
+	lines := readFile(file_path, [start.row..end.row]);
+	if (start.row == end.row) {
+		lines[1] := lines[1][start.col..end.col];
+	} else {
+		lines[1] := lines[1][start.col..];
+		lines[-1] := lines[-1][..end.col];
+	}
+	return join(lines, "\n");
+};
+
 class loc(row, col) {
 	row := row;
 	col := col;
+	className := procedure() { return "loc"; };
 	toStr := procedure() { return row + ":" + col; };
 }
 
@@ -87,7 +139,9 @@ class token(type, start, end, data := om) {
 	start := start;
 	end := end;
 	data := data;
-
+	className := procedure() { return "token"; };
+	is := procedure(typ) { return type == typ; };
+	isPrimary := procedure() { return type in {"Iden", "Str", "Int", "Float", "LParan", "LBrack", "LCurly"}; };
 	displayStr := procedure() {
 		if (data == om) {
 			return type;
@@ -97,13 +151,35 @@ class token(type, start, end, data := om) {
 	};
 }
 
-class lexer(file) {
-	file := file;
-	str := join(readFile(file), "\n");
+class astNode(type, start, end, data := om, children := []) {
+	type := type;
+	start := start;
+	end := end;
+	data := data;
+	children := children;
+	className := procedure() { return "astNode"; };
+	is := procedure(typ) { return type == typ; };
+	dumpToStr := procedure(indent_level := 0, single_indent := "  ") {
+		s := single_indent * indent_level + "@" + type;
+		if (data != om) {
+			s += "('" + data + "')";
+		}
+		for(c in children) {
+			s += "\n" + c.dumpToStr(indent_level + 1, single_indent);
+		}
+		return s;
+	};
+	displayStr := procedure() { return type + "(" + data + ")"; }; // for compatibility with token-class
+}
+
+class lexer(file_path, str) {
+	file := file_path;
+	str := str;
 	cur := 1;
 	bol := 0;
 	lc := 1;
 	len := #str;
+	className := procedure() { return "lexer"; };
 
 	is_space := procedure(c := str[cur]) {
 		return c == " " || c == "\t" || c == "\n" || c == "\r";
@@ -279,28 +355,258 @@ class lexer(file) {
 	};
 }
 
-compile := procedure(file) {
-	try {
-		l := lexer(file);
-		toks := [x.displayStr() : x in l.lex()];
-		for (t in toks) {
-			print(t);
+class parser(file_path, toks) {
+	file := file_path;
+	toks := toks;
+	len := #toks;
+	idx := 1;
+	className := procedure() { return "parser"; };
+
+	cur_tok := procedure() {
+		return toks[idx];
+	};
+
+	chop_tok := procedure() {
+		t := toks[idx];
+		this.idx += 1;
+		return t;
+	};
+
+	get_tok_prec := procedure() {
+		if (toks[idx] in domain(global.binOpPrecs)) {
+			return global.binOpPrecs[toks[idx]];
+		} else {
+			return -1;
 		}
-	} catch (e) {
-		printErr(e);
-	}
+	};
+
+	parse := procedure() {
+		if (len == 0) {
+			return astNode("Block", 0, 0);
+		}
+
+		stmts := [];
+		while (idx <= len) {
+			stmts += [parseStmt()];
+		}
+		return astNode("Block", toks[1].start, toks[-1].end, om, stmts);
+	};
+
+	parseStmt := procedure() {
+		t := chop_tok();
+		switch {
+			case t.is('If'): return parseIf();
+			case t.is('Match'): return parseMatch();
+			case t.is("Switch"): return parseSwitch();
+			case t.is("Try"): return parseTry();
+			case t.is("Class"): return parseClass();
+			case t.is("Scan"): return parseScan();
+			case t.is("For"): return parseFor();
+			case t.is("While"): return parseWhile();
+			case t.is("Do"): return parseDoWhile();
+			case t.is("Check"): return parseCheck();
+			case t.is("Backtrack"): return parseBacktrack();
+			case t.isPrimary():
+				this.idx -= 1;
+				return parsePrimaryStmt(parsePrimary(), "SemiColon");
+			default: compileErr(file, t.start, locToStr(file, t.start, t.end), "Invalid Token starting Statement: " + t.displayStr());
+		}
+	};
+
+	parsePrimaryStmt := procedure(t, endTokTypes) {
+		if (!isList(endTokTypes)) {
+			endTokTypes := [endTokTypes];
+		}
+		// print("t: " + t.displayStr());
+		if (idx > len) {
+			compileErr(file, t.end, locToStr(file, t.start, t.end), "Unexpected End of File. Expected a ';'");
+		}
+		nt := chop_tok();
+		// print("nt: " + nt.displayStr());
+		switch {
+			case nt.type in endTokTypes:
+				if (t.className() != "astNode") {
+					return parsePrimary(t);
+				}
+				return t;
+			case t.is("Iden") && nt.is("LParan"):
+				argList := parseCommaSeparated("RParan");
+				call := astNode("Call", t.start, toks[idx-1].end, t.data, argList);
+				return parsePrimaryStmt(call, endTokTypes);
+			case nt.type in domain(global.binOpPrecs):
+				this.idx -= 1;
+				op_ast := parseBinOps(t, 0);
+				if (idx > len) {
+					compileErr(file, t.start, locToStr(file, t.start, toks[-1].end), "Invalid End of File. Expected a ';'");
+				}
+				return parsePrimaryStmt(op_ast, endTokTypes);
+			default: compileErr(file, t.start, locToStr(file, t.start, nt.end), "Unhandled case for primary token " + t.displayStr() + " and next token " + nt.displayStr() + ". This case was not implemented yet");
+		}
+	};
+
+	parseIf := procedure() {
+		t := cur_tok();
+		compileErr(file, t.start, locToStr(file, t.start, t.end), "`parseIf` is not yet implemented.");
+	};
+
+	parseMatch := procedure() {
+		t := cur_tok();
+		compileErr(file, t.start, locToStr(file, t.start, t.end), "`parseMatch` is not yet implemented.");
+	};
+
+	parseSwitch := procedure() {
+		t := cur_tok();
+		compileErr(file, t.start, locToStr(file, t.start, t.end), "`parseSwitch` is not yet implemented.");
+	};
+
+	parseTry := procedure() {
+		t := cur_tok();
+		compileErr(file, t.start, locToStr(file, t.start, t.end), "`parseTry` is not yet implemented.");
+	};
+
+	parseClass := procedure() {
+		t := cur_tok();
+		compileErr(file, t.start, locToStr(file, t.start, t.end), "`parseClass` is not yet implemented.");
+	};
+
+	parseScan := procedure() {
+		t := cur_tok();
+		compileErr(file, t.start, locToStr(file, t.start, t.end), "`parseScan` is not yet implemented.");
+	};
+
+	parseFor := procedure() {
+		t := cur_tok();
+		compileErr(file, t.start, locToStr(file, t.start, t.end), "`parseFor` is not yet implemented.");
+	};
+
+	parseWhile := procedure() {
+		t := cur_tok();
+		compileErr(file, t.start, locToStr(file, t.start, t.end), "`parseWhile` is not yet implemented.");
+	};
+
+	parseDoWhile := procedure() {
+		t := cur_tok();
+		compileErr(file, t.start, locToStr(file, t.start, t.end), "`parseDoWhile` is not yet implemented.");
+	};
+
+	parseCheck := procedure() {
+		t := cur_tok();
+		compileErr(file, t.start, locToStr(file, t.start, t.end), "`parseCheck` is not yet implemented.");
+	};
+
+	parseBacktrack := procedure() {
+		t := cur_tok();
+		compileErr(file, t.start, locToStr(file, t.start, t.end), "`parseBacktrack` is not yet implemented.");
+	};
+
+	parseCommaSeparated := procedure(endTokType) {
+		start_loc := cur_tok().start; // For error message
+		res := [];
+		do {
+			t := chop_tok();
+			if (t.is(endTokType)) {
+				break;
+			}
+			res += [parsePrimaryStmt(t, ["Comma", endTokType])];
+		} while (!toks[idx-1].is(endTokType));
+		return res;
+	};
+
+	parseParan := procedure() {
+		t := toks[idx-1];
+		compileErr(file, t.start, locToStr(file, t.start, t.end), "`parseParan` is not yet implemented.");
+	};
+
+	parseSet := procedure() {
+		t := toks[idx-1];
+		compileErr(file, t.start, locToStr(file, t.start, t.end), "`parseSet` is not yet implemented.");
+	};
+
+	parseList := procedure() {
+		t := toks[idx-1];
+		compileErr(file, t.start, locToStr(file, t.start, t.end), "`parseList` is not yet implemented.");
+	};
+
+	parsePrimary := procedure(t := chop_tok()) {
+		switch {
+			case t.className == "astNode": return t;
+			case t.is("LParan"): return parseParan();
+			case t.is("LCurly"): return parseSet();
+			case t.is("LBrack"): return parseList();
+			case t.is("Str"): return astNode("Str", t.start, t.end, t.data);
+			case t.is("Int"): return astNode("Int", t.start, t.end, t.data);
+			case t.is("Float"): return astNode("Float", t.start, t.end, t.data);
+			case t.is("Iden"): return astNode("Iden", t.start, t.end, t.data);
+			default:
+				assert(!t.isPrimary(), "parsePrimary should only fail if the token isn't primary. The token " + t + " is primary apparently though.");
+				compileErr(file, t.start, locToStr(file, t.start, t.end), "Expected to parse a primary value. Received " + t.displayStr() + " instead");
+		}
+	};
+
+
+	////////////
+	////////////
+	////////////
+
+	parseBinOps := procedure(lhs, min_prec := 0) {
+		lookahead := cur_tok();
+		while (lookahead != om && global.binOpPrecs[lookahead.type] != om && global.binOpPrecs[lookahead.type] >= min_prec) {
+			bin_op := chop_tok();
+			prec := global.binOpPrecs[lookahead.type];
+			rhs := parsePrimary();
+			lookahead := cur_tok();
+			if (lookahead != om) {
+				next_prec := global.binOpPrecs[lookahead.type];
+				while (next_prec != om && (next_prec > prec || (next_prec == prec &&  global.isRightAssoc(lookahead.type)))) {
+					next_min_prec := prec;
+					if (next_prec > prec) {
+						next_min_prec += 1;
+					}
+					rhs := parseBinOps(rhs, next_min_prec);
+					lookahead := cur_tok();
+					if (lookahead == om) {
+						break;
+					}
+					next_prec := global.binOpPrecs[lookahead.type];
+				}
+			}
+			lhs := astNode("BinOp", lhs.start, rhs.end, bin_op.type, [parsePrimary(lhs), rhs]);
+		}
+		return lhs;
+	};
+}
+
+compile := procedure(file) {
+	str := join(readFile(file), "\n");
+	toks := lexer(file, str).lex();
+	print("Tokens:");
+	print([tok.displayStr() : tok in toks]);
+
+	ast := parser(file, toks).parse();
+	print("AST:");
+	print(ast.dumpToStr());
 };
 
 
-main := procedure() {
+main := procedure(params) {
 	if (#params < 1) {
 		printErr("Not enough arguments were provided.");
 		printErr();
 		printErr("Usage:");
-		printErr("setlX setlXC.stlx -p <filename>");
+		printErr("setlX setlXC.stlx -p <filename> [-d]");
+		printErr("The flag '-d' is optional and enables debugging mode. The only difference at the moment is that the full Stack-Trace is shown on errors if debugging mode is enabled.");
 		return;
 	}
-	compile(params[1]);
+
+	if (#params >= 2 && params[2] == "-d") {
+		compile(params[1]);
+	} else {
+		try {
+			compile(params[1]);
+		} catch (e) {
+			printErr(e);
+		}
+	}
 };
 
-main();
+main(params);
