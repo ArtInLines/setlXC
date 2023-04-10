@@ -175,13 +175,15 @@ class astNode(type, start, end, data := om, args := [], body := []) {
 		if (data != om && isObject(data) && data.className() == "astNode") { dat := dat.displayStr(); }
 		return dat;
 	};
-	dumpToStr := procedure(indent_level := 0, single_indent := " ") {
+	dumpToStr := procedure(show_loc := false, indent_level := 0, single_indent := " ") {
 		s := single_indent * indent_level + "@" + type;
 		if (data != om) { s += "('" + dataToStr() + "')"; }
+		if (show_loc) { s += " [" + start.locStr() + " - " + end.locStr() + "]"; }
+
 		if (#args > 0 && #body > 0) { s += "\n" + single_indent * (indent_level + 1) + "Args:"; }
-		for (c in args) { s += "\n" + c.dumpToStr(indent_level + 2, single_indent); }
+		for (c in args) { s += "\n" + c.dumpToStr(show_loc, indent_level + 2, single_indent); }
 		if (#body > 0) { s += "\n" + single_indent * (indent_level + 1) + "Body:"; }
-		for (stmt in body) { s += "\n" + stmt.dumpToStr(indent_level + 2, single_indent); }
+		for (stmt in body) { s += "\n" + stmt.dumpToStr(show_loc, indent_level + 2, single_indent); }
 		return s;
 	};
 	displayStr := procedure() {
@@ -299,7 +301,7 @@ class lexer(file_path, str) {
 		for([sym, tok] in global.symbolsToToks) {
 			if (startsWith(str, sym, cur - 1)) {
 				this.cur += #sym;
-				return token(tok, loc(file, lc,start - bol), loc(file, lc,cur + #sym - bol));
+				return token(tok, loc(file, lc, start - bol), loc(file, lc, cur - bol));
 			}
 		}
 		compileErr(file, loc(file, lc,start - bol), str[start], "Unknown Symbol");
@@ -588,7 +590,7 @@ class parser(file_path, toks) {
 		if (idx > len) {
 			compileErr(file, toks[-1].end, "class " + class_name + "(...) {... ", "Unclosed Curly Braces in Declaration of '" + class_name + "' class");
 		}
-		end_loc := chop_tok().loc;
+		end_loc := chop_tok().end;
 
 		if (!toks[idx-1].is("RCurly")) { stop("parseclass: end assumption broken"); }
 		return astNode("Class", start_loc, end_loc, class_name, argList, stmts);
@@ -754,11 +756,6 @@ class parser(file_path, toks) {
 		return res;
 	};
 
-
-	////////////
-	////////////
-	////////////
-
 	// Starts with cur_tok() being the token after lhs
 	// Ends with cur_tok() being the token after the result
 	parseBinOps := procedure(lhs, min_prec := 0) {
@@ -794,15 +791,30 @@ class parser(file_path, toks) {
 	};
 }
 
+simplifyAST := procedure(ast) {
+	if (ast.className() == "token" || (ast.args == [] && ast.body == [])) { return ast; }
+	if (ast.className() != "astNode") { throw("simplifyAST expects a token or astNode but received: " + ast); }
+
+	res := om;
+	switch {
+		default: compileErr(ast.file, ast.start, ast.end, "Cannot simplify the following astNode: " + ast.displayStr());
+	}
+	return res;
+};
+
 compile := procedure(file) {
 	str := join(readFile(file), "\n");
 	toks := lexer(file, str).lex();
 	print("Tokens:");
-	print([tok.displayStr() : tok in toks]);
+	for (tok in toks) {
+		print(tok.displayStr() /* + " [" + tok.start.locStr() + " - " + tok.end.locStr() + "]" */ );
+	}
+
+	print("\n");
 
 	ast := parser(file, toks).parse();
 	print("AST:");
-	print(ast.dumpToStr());
+	print(ast.dumpToStr(false));
 };
 
 
