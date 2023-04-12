@@ -6,7 +6,7 @@ class c(arg1, arg2) {
 }
 
 a := 3;
-a += 7;
+a += 7 + 3 * 2;
 print("Hello World\n" * 3, c.f(7));
 
 foo := procedure() {

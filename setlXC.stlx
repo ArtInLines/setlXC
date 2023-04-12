@@ -221,20 +221,18 @@ class lexer(file_path, str) {
 
 	chop_lc := procedure() {
 		// Line Comment
-		assert(str[cur..cur+1] == "//", "chop_lc should only be called when str[cur..cur+1] == '//' is true");
+		if(str[cur..cur+1] != "//") { throw("chop_lc should only be called when str[cur..cur+1] == '//' is true"); }
 		this.cur += 2;
-		while (cur < len && !is_newline(str[cur])) {
+		while (cur <= len && !is_newline(str[cur])) {
 			chop_char();
 		}
-		// Since the loop breaks as soon as cur == len or str[cur] == '\n', it is safe to increment cur
-		this.cur += 1;
 	};
 
 	chop_bc := procedure() {
 		// Block Comment
 		start_cur := cur;
 		start := loc(file, lc,start_cur - bol);
-		assert(str[cur..cur+1] == "/*", "chop_bc should only be called when str[cur..cur+1] == '/*' is true");
+		if(str[cur..cur+1] != "/*") { throw("chop_bc should only be called when str[cur..cur+1] == '/*' is true"); }
 		this.cur += 2;
 		while (cur <= len) {
 			// Return from function, when block comment is over
@@ -424,6 +422,7 @@ class parser(file_path, toks) {
 			case t.type in domain(invalidCases): res := compileErr(file, t.start, t.end, invalidCases[t.type]);
 			case t.type in domain(additionalCases): res := additionalCases[t.type]();
 			case t.is('If'): res := parseIf();
+			case t.is('Else'): res := parseElse();
 			case t.is('Match'): res := parseMatch();
 			case t.is("Switch"): res := parseSwitch();
 			case t.is("Try"): res := parseTry();
@@ -497,6 +496,7 @@ class parser(file_path, toks) {
 				data := t;
 				if (t.className() == "token") { data := t.data; }
 				call := astNode("Call", t.start, toks[idx-1].end, data, argList);
+				print(call.dumpToStr(true));
 				res := parsePrimaryStmt(call, endTokTypes);
 			case nt.is("Dot"):
 				tt := chop_tok();
@@ -545,24 +545,72 @@ class parser(file_path, toks) {
 		return res;
 	};
 
+	// Starts with toks[idx-1] == "if"
+	// Ends with toks[idx-1] == "}"
 	parseIf := procedure() {
-		t := cur_tok();
-		compileErr(file, t.start, t.end, "`parseIf` is not yet implemented.");
+		if_form := "if (<cond>) { <body> }";
+		if (!toks[idx-1].is("If")) { stop("parseIf: start assumption broken"); }
+		start_loc := toks[idx-1].start;
+
+		if (!chop_tok().is("LParan")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: If-Satements should have the following form: " + if_form); }
+		cond := parsePrimaryStmt(chop_tok(), ["RParan"]);
+		if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: If-Satements should have the following form: " + if_form); }
+
+		body := [];
+		while (idx <= len && !cur_tok().is("RCurly")) {
+			body += [parseStmt()];
+		}
+		if (idx > len) {
+			compileErr(file, start_loc, toks[-1].end, "Unclosed Curly Braces in If-statement");
+		}
+
+		next := chop_tok();
+		end_loc := next.end;
+		if (!toks[idx-1].is("RCurly")) { stop("parseIf: end assumption broken"); }
+		return astNode("If", start_loc, end_loc, om, [cond], body);
+	};
+
+	// Starts with toks[idx-1] == "Else"
+	// Ends with toks[idx-1] == "}"
+	parseElse := procedure() {
+		else_form := "else (if (<cond>))* { <body> }";
+		if (!toks[idx-1].is("Else")) { stop("parseElse: start assumption broken"); }
+		start_loc := toks[idx-1].start;
+
+		conds := [];
+		if (cur_tok().is("If")) {
+			if (!chop_tok().is("LParan")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: If-Satements should have the following form: " + else_form); }
+			conds += [parsePrimaryStmt(chop_tok(), ["RParan"])];
+			if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: If-Satements should have the following form: " + else_form); }
+		}
+
+		body := [];
+		while (idx <= len && !cur_tok().is("RCurly")) {
+			body += [parseStmt()];
+		}
+		if (idx > len) {
+			compileErr(file, start_loc, toks[-1].end, "Unclosed Curly Braces in If-statement");
+		}
+
+		next := chop_tok();
+		end_loc := next.end;
+		if (!toks[idx-1].is("RCurly")) { stop("parseElse: end assumption broken"); }
+		return astNode("Else", start_loc, end_loc, om, conds, body);
 	};
 
 	parseMatch := procedure() {
 		t := cur_tok();
-		compileErr(file, t.start, t.end, "`parseMatch` is not yet implemented.");
+		compileErr(file, t.start, t.end, "`parseMatch` is not yet implemented");
 	};
 
 	parseSwitch := procedure() {
 		t := cur_tok();
-		compileErr(file, t.start, t.end, "`parseSwitch` is not yet implemented.");
+		compileErr(file, t.start, t.end, "`parseSwitch` is not yet implemented");
 	};
 
 	parseTry := procedure() {
 		t := cur_tok();
-		compileErr(file, t.start, t.end, "`parseTry` is not yet implemented.");
+		compileErr(file, t.start, t.end, "`parseTry` is not yet implemented");
 	};
 
 	// Starts with toks[idx-1] == "Class"
@@ -620,32 +668,32 @@ class parser(file_path, toks) {
 
 	parseScan := procedure() {
 		t := cur_tok();
-		compileErr(file, t.start, t.end, "`parseScan` is not yet implemented.");
+		compileErr(file, t.start, t.end, "`parseScan` is not yet implemented");
 	};
 
 	parseFor := procedure() {
 		t := cur_tok();
-		compileErr(file, t.start, t.end, "`parseFor` is not yet implemented.");
+		compileErr(file, t.start, t.end, "`parseFor` is not yet implemented");
 	};
 
 	parseWhile := procedure() {
 		t := cur_tok();
-		compileErr(file, t.start, t.end, "`parseWhile` is not yet implemented.");
+		compileErr(file, t.start, t.end, "`parseWhile` is not yet implemented");
 	};
 
 	parseDoWhile := procedure() {
 		t := cur_tok();
-		compileErr(file, t.start, t.end, "`parseDoWhile` is not yet implemented.");
+		compileErr(file, t.start, t.end, "`parseDoWhile` is not yet implemented");
 	};
 
 	parseCheck := procedure() {
 		t := cur_tok();
-		compileErr(file, t.start, t.end, "`parseCheck` is not yet implemented.");
+		compileErr(file, t.start, t.end, "`parseCheck` is not yet implemented");
 	};
 
 	parseBacktrack := procedure() {
 		t := cur_tok();
-		compileErr(file, t.start, t.end, "`parseBacktrack` is not yet implemented.");
+		compileErr(file, t.start, t.end, "`parseBacktrack` is not yet implemented");
 	};
 
 	// Call with the cur_tok() equal to the bginning of the first comma-separated element
@@ -677,7 +725,7 @@ class parser(file_path, toks) {
 
 	parseParan := procedure() {
 		t := toks[idx-1];
-		compileErr(file, t.start, t.end, "`parseParan` is not yet implemented.");
+		compileErr(file, t.start, t.end, "`parseParan` is not yet implemented");
 	};
 
 	// Starts with t == toks[idx-1]
@@ -727,7 +775,11 @@ class parser(file_path, toks) {
 	// Starts with t == toks[idx-1]
 	// Ends with cur_tok() being the next token after the primary value
 	parsePrimary := procedure(t := chop_tok()) {
-		if (toks[idx-1] != t) { stop("parsePrimary: start assumption broken"); }
+		if (toks[idx-1] != t) {
+			print("t: " + t.displayStr());
+			print("toks[idx-1]: " + toks[idx-1].displayStr());
+			stop("parsePrimary: start assumption broken");
+		}
 
 		res := om;
 		switch {
@@ -805,12 +857,19 @@ simplifyAST := procedure(ast) {
 compile := procedure(file) {
 	str := join(readFile(file), "\n");
 	toks := lexer(file, str).lex();
-	print("Tokens:");
-	for (tok in toks) {
-		print(tok.displayStr() /* + " [" + tok.start.locStr() + " - " + tok.end.locStr() + "]" */ );
-	}
 
-	print("\n");
+	fstr := readFile(file);
+	// for(i in {5000..#toks}) {
+	// 	tok := toks[i];
+	// 	if (tok.start.row != tok.end.row) { stop("broken assumption"); }
+	// 	print(i + ": " + fstr[tok.start.row][tok.start.col..tok.end.col-1] + " = " + tok.displayStr() + " [" + tok.start.locStr() + " - " + tok.end.locStr() + "]");
+	// }
+	// print("Tokens:");
+	// for (tok in toks) {
+	// 	print(tok.displayStr() /* + " [" + tok.start.locStr() + " - " + tok.end.locStr() + "]" */ );
+	// }
+
+	// print("\n");
 
 	ast := parser(file, toks).parse();
 	print("AST:");
