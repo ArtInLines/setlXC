@@ -1,22 +1,31 @@
-class c(arg1, arg2) {
-	static {
-		l := [];
-		f := procedure(n) { return n * n; };
-	}
-}
+// class c(arg1, arg2) {
+// 	static {
+// 		l := [];
+// 		f := procedure(n) { return n * n; };
+// 	}
+// }
 
-a := 3;
-a += 7 + 3 * 2;
-print("Hello World\n" * 3, c.f(7));
+// a := 3;
+// a += 7 + 3 * 2;
+// print("Hello World\n" * 3, c.f(7));
 
-foo := procedure() {
-	print("foo");
-	x := 3 + 5;
-	bar := procedure() {
-		print("bar");
-	};
-	return [bar, x];
-};
+// foo := procedure() {
+// 	print("foo");
+// 	x := 3 + 5;
+// 	bar := procedure() {
+// 		print("bar");
+// 	};
+// 	return [bar, x];
+// };
 
-foo()[1]();
-print(foo()[2].n);
+// foo()[1]();
+// print(foo()[2].n);
+
+[1+2, {4*7..7**2}];
+
+b := [1,2,3];
+a := 4;
+a *= 2;
+b[1] /= a - 2;
+
+// print("uwu");
