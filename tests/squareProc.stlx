@@ -1,0 +1,6 @@
+square := procedure(x) {
+	return x * x;
+};
+
+print(square(3));
+print(square(square(2)));
