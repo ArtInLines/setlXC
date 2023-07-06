@@ -9,6 +9,10 @@ class stackNode(n) {
 		}
 		return s;
 	};
+	// get := procedure(x := 0) {
+	// 	if (x <= 0) { return this; }
+	// 	else { return this.children[#children].get(x - 1); }
+	// };
 	add := procedure(n, x := 0) {
 		if (x <= 0) { this.children += [stackNode(n)]; }
 		else if (this.children == []) { throw("Error in adding to stackNode"); }
@@ -1061,6 +1065,8 @@ main := procedure(params) {
 		if (global.debug) {
 			print("\nStack:");
 			print(global.stack.toStr());
+			// print("Current Function:");
+			// print(global.stack.get(global.stacklen));
 		}
 	}
 };
