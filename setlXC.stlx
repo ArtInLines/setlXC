@@ -2,9 +2,18 @@
 // @Note: This is actually a tree, since I have found myself wanting to get information about past snapshots of the stack-trace as well
 // However, calling toStr() prints the stackNode as though it actually was a stack
 class stackNode(n, args) {
-	this.name := n;
-	this.args := args; // Map of argument names to values
+	this.name     := n;
+	this.args     := args; // List of argument-tuples (names, values) @Note: values must also be provided as strings
 	this.children := []; // List of children nodes
+	argsToStr := procedure() {
+		if (#this.args == 0) { return ""; }
+		s := "(";
+		for (arg in args) {
+			s += arg[1] + ": " + arg[2] + ", ";
+		}
+		idx := #s - 2;
+		return s[1..idx] + ")";
+	};
 	// Get a string representation of the stack over time (meaning in tree-representation)
 	toFullStr := procedure(in_level := 0, in_str := "  ") {
 		s := in_str * in_level;
@@ -16,21 +25,18 @@ class stackNode(n, args) {
 	};
 	// Get a string representation of the current stack
 	toStr := procedure() {
-		s := this.name;
+		s := this.name + " " + this.argsToStr();
 		node := this;
 		while (node.children != []) {
 			node := node.children[#node.children];
-			s += "\n" + node.name + "( ";
-			for (arg in node.args) {
-				s += arg[1] + ": " + arg[2] + ", ";
-			}
-			s += ")";
+			s += "\n" + node.name + " " + node.argsToStr();
 		}
 		return s;
 	};
 	// Get the node at level x
-	get := procedure(x := 0) {
-		if (x <= 0) { return this; }
+	get := procedure(x := 1) {
+		if (x <= 1) { return this; }
+		else if (this.children == []) { throw("Error in getting StackNode"); }
 		else { return this.children[#this.children].get(x - 1); }
 	};
 	// Add a new node to level x
@@ -42,6 +48,16 @@ class stackNode(n, args) {
 	};
 }
 
+setToStr := procedure(set, f := om) {
+	if (f == om) { return "" + {   x  : x in set }; }
+	else         { return "" + { f(x) : x in set }; }
+};
+
+listToStr := procedure(list, f := om) {
+	if (f == om) { return "" + [   x  : x in list ]; }
+	else         { return "" + [ f(x) : x in list ]; }
+};
+
 class global() {
 	static {
 		debug := false;
@@ -51,7 +67,7 @@ class global() {
 
 		stack := om;
 		stacklen := 0;
-		push := procedure(name, args := {}) {
+		push := procedure(name, args := []) {
 			if (global.stack == om) { global.stack := stackNode(name, args); }
 			else { global.stack := global.stack.add(name, args, global.stacklen - 1); }
 			global.stacklen += 1;
@@ -98,7 +114,7 @@ class global() {
 			[">=", "Ge"],
 			["<", "Lt"],
 			[">", "Gt"],
-			["!", "Exclamation"],
+			["!", "Not"],
 			["**", "Exp"],
 			["+/", "AddColl"],
 			["*/", "MulColl"],
@@ -125,7 +141,7 @@ class global() {
 
 		assignToks := ["Assign", "AddAssign", "SubAssign", "MulAssign", "DivAssign", "ModAssign", "IntDivAssign"];
 
-		unaryPrecs := ["+/", "*/"];
+		unaryOps := ["AddColl", "MulColl", "Sub", "Add", "Not", "Hash"];
 
 		// The higher the precedence, the earlier the operation is evaluated
 		binOpPrecs := {
@@ -162,11 +178,12 @@ class global() {
 
 class loc(file, row, col) {
 	file := file;
-	row := row;
-	col := col;
+	row  := row;
+	col  := col;
 	className := procedure() { return "loc"; };
-	equals := procedure(other) { return other != om && file == other.file && row == other.row && col == other.col; };
-	locStr := procedure() { return file + ":" + row + ":" + col; };
+	equals    := procedure(other) { return other != om && file == other.file && row == other.row && col == other.col; };
+	locStr    := procedure() { return file + ":" + row + ":" + col; };
+	toStr     := locStr;
 
 	static {
 		toStr := procedure(start, end) {
@@ -184,14 +201,15 @@ class loc(file, row, col) {
 }
 
 class token(type, start, end, data := om) {
-	type := type;
+	type  := type;
 	start := start;
-	end := end;
-	data := data;
-	className := procedure() { return "token"; };
-	is := procedure(typ) { return type == typ; };
-	isPrimary := procedure() { return type in {"Iden", "Str", "Int", "Float", "LParan", "LBrack", "LCurly", "Hash", "Ret"}; };
-	equals := procedure(other) { return other != om && type == other.type && start == other.start && end == other.end && data == other.data; };
+	end   := end;
+	data  := data;
+	className  := procedure() { return "token"; };
+	is         := procedure(typ) { return type == typ; };
+	// @Note: Primary values are literals or paranthesized expressions
+	isPrimary  := procedure() { return type in {"Iden", "Str", "Int", "Float", "LParan", "LBrack", "LCurly"}; };
+	equals     := procedure(other) { return other != om && type == other.type && start == other.start && end == other.end && data == other.data; };
 	displayStr := procedure() {
 		if (data == om) {
 			return type;
@@ -199,18 +217,19 @@ class token(type, start, end, data := om) {
 			return type + "('" + data + "')";
 		}
 	};
+	toStr      := displayStr;
 }
 
 class astNode(type, start, end, data := om, args := [], body := []) {
-	type := type;
+	type  := type;
 	start := start;
-	end := end;
-	data := data;
-	args := args;
-	body := body;
+	end   := end;
+	data  := data;
+	args  := args;
+	body  := body;
 	className := procedure() { return "astNode"; };
-	is := procedure(typ) { return type == typ; };
-	equals := procedure(other) { return other != om && type == other.type && start == other.start && end == other.end && data == other.data; }; // Not checking children for equality for performance reasons
+	is        := procedure(typ) { return type == typ; };
+	equals    := procedure(other) { return other != om && type == other.type && start == other.start && end == other.end && data == other.data; }; // Not checking children for equality for performance reasons
 	dataToStr := procedure() {
 		dat := data;
 		if (data != om && isObject(data) && data.className() == "astNode") { dat := dat.displayStr(); }
@@ -233,6 +252,7 @@ class astNode(type, start, end, data := om, args := [], body := []) {
 		}
 		return "@" + type + "(" + dataToStr() + ")";
 	}; // for compatibility with token-class
+	toStr := displayStr;
 }
 
 
@@ -259,11 +279,11 @@ startsWith := procedure(str, prefix, strOffset := 0) {
 
 class lexer(file_path, str) {
 	file := file_path;
-	str := str;
-	cur := 1;
-	bol := 0;
-	lc := 1;
-	len := #str;
+	str  := str;
+	cur  := 1;
+	bol  := 0;
+	lc   := 1;
+	len  := #str;
 	className := procedure() { return "lexer"; };
 
 	is_space := procedure(c := str[cur]) {
@@ -435,8 +455,8 @@ class lexer(file_path, str) {
 class parser(file_path, toks) {
 	file := file_path;
 	toks := toks;
-	len := #toks;
-	idx := 1;
+	len  := #toks;
+	idx  := 1;
 	className := procedure() { return "parser"; };
 
 	cur_tok := procedure() {
@@ -475,25 +495,46 @@ class parser(file_path, toks) {
 	};
 
 	parseStmt := procedure(additionalCases := {}, invalidCases := {}) {
-		global.push("parseStmt", {["additionalCases", additionalCases], ["invalidCases", invalidCases]});
+		global.push("parseStmt", [["additionalCases", setToStr(additionalCases, x |=> x[1])], ["invalidCases", setToStr(invalidCases, x |=> x[1])]]);
 		t := chop_tok();
 		res := om;
 		switch {
-			case t.type in domain(invalidCases): res := compileErr(file, t.start, t.end, invalidCases[t.type]);
+			case t.type in domain(invalidCases):    res := compileErr(file, t.start, t.end, invalidCases[t.type]);
 			case t.type in domain(additionalCases): res := additionalCases[t.type]();
-			case t.is('If'): res := parseIf();
-			case t.is('Else'): res := parseElse();
-			case t.is('Match'): res := parseMatch();
-			case t.is("Switch"): res := parseSwitch();
-			case t.is("Try"): res := parseTry();
-			case t.is("Scan"): res := parseScan();
-			case t.is("For"): res := parseFor();
-			case t.is("While"): res := parseWhile();
-			case t.is("Do"): res := parseDoWhile();
-			case t.is("Check"): res := parseCheck();
+			case t.is('If'):        res := parseIf();
+			case t.is('Else'):      res := parseElse();
+			case t.is('Match'):     res := parseMatch();
+			case t.is("Switch"):    res := parseSwitch();
+			case t.is("Try"):       res := parseTry();
+			case t.is("Scan"):      res := parseScan();
+			case t.is("For"):       res := parseFor();
+			case t.is("While"):     res := parseWhile();
+			case t.is("Do"):        res := parseDoWhile();
+			case t.is("Check"):     res := parseCheck();
 			case t.is("Backtrack"): res := parseBacktrack();
+			case t.is("Ret"):
+				expr := parseExprWithEndTok(chop_tok(), "SemiColon");
+				res := astNode("Ret", t.start, toks[idx-1].end, om, [expr]);
+			case cur_tok().type in global.assignToks:
+				nt := chop_tok();
+				if (t.type notin {"Iden", "Index", "Property"}) {
+					compileErr(file, t.start, nt.end, "Expected an identifier before assignment. Found a " + t.displayStr() + " instead");
+				}
+				if (t.className() == "token") {
+					this.idx -= 1;
+					t        := parsePrimary(t);
+					this.idx += 1;
+				}
+				val := parseExprWithEndTok(chop_tok(), "SemiColon");
+				if (nt.type != "Assign") {
+					bin_op_typ := nt.type[..-7]; // -7 comes from `- #"Assign" - 1`
+					bin_op     := astNode("BinOp", t.start, val.end, bin_op_typ, [t, val]);
+					res        := astNode("Assign", t.start, val.end, om, [t, bin_op]);
+				} else {
+					res := astNode("Assign", t.start, val.end, om, [t, val]);
+				}
 			case t.isPrimary():
-				res := parsePrimaryStmt(t, "SemiColon");
+				res := parseExprWithEndTok(t, "SemiColon");
 			default: compileErr(file, t.start, t.end, "Invalid Token starting Statement: " + t.displayStr());
 		}
 		// global.p("parsed stmt: " + res.displayStr());
@@ -501,20 +542,18 @@ class parser(file_path, toks) {
 		return res;
 	};
 
-	// Starts with first token of stmt or astNode
+	// Starts with first token of expr or astNode
 	// Ends after token of endTokTypes
-	parsePrimaryStmt := procedure(t, endTokTypes) {
-		global.push("parsePrimaryStmt", {["t", t], ["endTokTypes", endTokTypes]});
-		if (!isList(endTokTypes)) {
-			endTokTypes := [endTokTypes];
-		}
+	parseExprWithEndTok := procedure(t, endTokTypes) {
+		if (!isList(endTokTypes)) { endTokTypes := [endTokTypes]; }
+		global.push("parseExprWithEndTok", [["t", t.toStr()], ["endTokTypes", listToStr(endTokTypes)]]);
 		if (idx > len) {
 			compileErr(file, t.start, t.end, "Unexpected End of File. Expected a ';'");
 		}
 		nt := chop_tok();
-		// global.p("primaryStmt - t: " + t.displayStr());
-		// global.p("primaryStmt - nt: " + nt.displayStr());
-		// global.p("primaryStmt - endTokTypes: " + endTokTypes);
+		// global.p("exprWithEndTok - t: " + t.displayStr());
+		// global.p("exprWithEndTok - nt: " + nt.displayStr());
+		// global.p("exprWithEndTok - endTokTypes: " + endTokTypes);
 
 		res := om;
 		switch {
@@ -526,55 +565,42 @@ class parser(file_path, toks) {
 				} else {
 					res := t;
 				}
-			case t.className() == "astNode" && t.is("Ret"):
-				this.idx -= 1;
-				res := t;
 			case t.is("Proc"):
 				res := parseProc(nt);
 				this.idx += 1;
-			case nt.type in global.assignToks:
-				if (t.type notin {"Iden", "Index", "Property"}) {
-					compileErr(file, t.start, nt.end, "Expected an identifier before assignment. Found a " + t.displayStr() + " instead");
+			case t.className() == "token" && t.type in global.unaryOps:
+				this.idx -= 2;
+				unary := parseUnary();
+				if (idx > len && #endTokTypes > 0) {
+					compileErr(file, t.start, op_ast.end, "Invalid End of File. Expected one of the following symbols: " + endTokTypes);
 				}
-				if (t.className() == "token") {
-					this.idx -= 1;
-					t := parsePrimary(t);
-					this.idx += 1;
-				}
-				val := parsePrimaryStmt(chop_tok(), endTokTypes);
-				if (nt.type != "Assign") {
-					bin_op_typ := nt.type[..-7]; // - #"Assign" - 1
-					bin_op := astNode("BinOp", t.start, nt.end, bin_op_typ, [t, val]);
-					res := astNode("Assign", t.start, toks[idx-1].end, om, [t, bin_op]);
-				} else {
-					res := astNode("Assign", t.start, toks[idx-1].end, om, [t, val]);
-				}
+				res := parseExprWithEndTok(unary, endTokTypes);
 			case nt.type in domain(global.binOpPrecs):
 				this.idx -= 1;
 				op_ast := parseBinOps(t, 0);
-				if (idx > len) {
-					compileErr(file, t.start, toks[-1].end, "Invalid End of File. Expected a ';'");
+				if (idx > len && #endTokTypes > 0) {
+					compileErr(file, t.start, op_ast.end, "Invalid End of File. Expected one of the following symbols: " + endTokTypes);
 				}
-				res := parsePrimaryStmt(op_ast, endTokTypes);
+				res := parseExprWithEndTok(op_ast, endTokTypes);
 			case t.className() == "token" && t.isPrimary():
 				this.idx -= 2;
-				res := parsePrimaryStmt(parsePrimary(), endTokTypes);
+				res := parseExprWithEndTok(parsePrimary(), endTokTypes);
 			case t.className() == "astNode" && nt.is("LBrack"):
-				stmt := parsePrimaryStmt(chop_tok(), ["RBrack", "DotDot"]);
+				stmt := parseExprWithEndTok(chop_tok(), ["RBrack", "DotDot"]);
 				if (toks[idx-1].is("DotDot")) {
 					x := om;
-					if (!cur_tok().is("RBrack")) { x := parsePrimaryStmt(chop_tok(), ["RBrack"]); }
+					if (!cur_tok().is("RBrack")) { x := parseExprWithEndTok(chop_tok(), ["RBrack"]); }
 					else { chop_tok(); }
 					stmt := astNode("Range", t.start, toks[idx-1].end, om, [t, x]);
 				}
-				node := astNode("Index", t.start, stmt.end, om, [t, stmt]);
-				res := parsePrimaryStmt(node, endTokTypes);
+				node := astNode("Index", t.start, toks[idx-1].end, om, [t, stmt]);
+				res := parseExprWithEndTok(node, endTokTypes);
 			case nt.is("LParan"):
 				argList := parseCommaSeparated("RParan");
 				data := t;
 				if (t.className() == "token") { data := t.data; }
 				call := astNode("Call", t.start, toks[idx-1].end, data, argList);
-				res := parsePrimaryStmt(call, endTokTypes);
+				res := parseExprWithEndTok(call, endTokTypes);
 			case nt.is("Dot"):
 				tt := chop_tok();
 				if (!tt.is("Iden")) { compileErr(file, tt.start, loc.toStr(t.start, tt.end), "Syntax Error. Only identifiers are allowed as accessors after a dot."); }
@@ -582,7 +608,7 @@ class parser(file_path, toks) {
 				p := t.data;
 				if (t.className() == "astNode") { p := t; }
 				prop := astNode("Property", t.start, tt.end, t.data, [tt]);
-				res := parsePrimaryStmt(prop, endTokTypes);
+				res := parseExprWithEndTok(prop, endTokTypes);
 			default:
 				global.p("endTokTypes: " + endTokTypes);
 				global.p("t.loc: " + t.start.locStr() + " - " + t.end.locStr());
@@ -591,15 +617,15 @@ class parser(file_path, toks) {
 		}
 
 
-		if (toks[idx-1].type notin endTokTypes) { stop("parsePrimaryStmt: end assumption broken"); }
+		if (toks[idx-1].type notin endTokTypes) { stop("parseExprWithEndTok: end assumption broken"); }
 		global.pop();
 		return res;
 	};
 
-	// Starts with toks[idx-2] == procedure & t == toks[idx-1]
+	// Starts with toks[idx-2] == "procedure" & t == toks[idx-1]
 	// End with toks[idx-1] == ending "}"
 	parseProc := procedure(t := chop_tok()) {
-		global.push("parseProc", {["t", t]});
+		global.push("parseProc", [["t", t.toStr()]]);
 		if (!toks[idx-2].is("Proc") || t != toks[idx-1]) { stop("parseProc: start assumption broken"); }
 
 		start_loc := toks[idx-2].start;
@@ -639,7 +665,7 @@ class parser(file_path, toks) {
 		start_loc := toks[idx-1].start;
 
 		if (!chop_tok().is("LParan")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: If-Satements should have the following form: " + if_form); }
-		cond := parsePrimaryStmt(chop_tok(), ["RParan"]);
+		cond := parseExprWithEndTok(chop_tok(), ["RParan"]);
 		if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: If-Satements should have the following form: " + if_form); }
 
 		body := [];
@@ -669,7 +695,7 @@ class parser(file_path, toks) {
 		if (cur_tok().is("If")) {
 			chop_tok();
 			if (!chop_tok().is("LParan")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: Else-Satements should have the following form: " + else_form); }
-			conds += [parsePrimaryStmt(chop_tok(), ["RParan"])];
+			conds += [parseExprWithEndTok(chop_tok(), ["RParan"])];
 			if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: Else-Satements should have the following form: " + else_form); }
 		}
 
@@ -774,7 +800,7 @@ class parser(file_path, toks) {
 		if (!chop_tok().is("LParan")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: For-Satements should have the following form: " + for_form); }
 		var := parsePrimary(chop_tok());
 		if (!chop_tok().is("In")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: For-Satements should have the following form: " + for_form); }
-		collection := parsePrimaryStmt(chop_tok(), ["RParan"]);
+		collection := parseExprWithEndTok(chop_tok(), ["RParan"]);
 		if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: For-Satements should have the following form: " + for_form); }
 
 		body := [];
@@ -799,7 +825,7 @@ class parser(file_path, toks) {
 		start_loc := toks[idx-1].start;
 
 		if (!chop_tok().is("LParan")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: While-Satements should have the following form: " + while_form); }
-		cond := parsePrimaryStmt(chop_tok(), ["RParan"]);
+		cond := parseExprWithEndTok(chop_tok(), ["RParan"]);
 		if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: While-Satements should have the following form: " + while_form); }
 
 		body := [];
@@ -834,7 +860,7 @@ class parser(file_path, toks) {
 
 		if (!chop_tok().is("While")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: DoWhile-Satements should have the following form: " + dowhile_form); }
 		if (!chop_tok().is("LParan")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: DoWhile-Satements should have the following form: " + dowhile_form); }
-		cond := parsePrimaryStmt(chop_tok(), ["RParan"]);
+		cond := parseExprWithEndTok(chop_tok(), ["RParan"]);
 		if (!chop_tok().is("SemiColon")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: DoWhile-Satements should have the following form: " + dowhile_form); }
 
 		end_loc := toks[idx-1].end;
@@ -855,8 +881,8 @@ class parser(file_path, toks) {
 	// Call with the cur_tok() equal to the bginning of the first comma-separated element
 	// Returns with cur_tok() equal to the token after endTokType
 	// parsingF should have the following signature: (token, [..endTokTypes])
-	parseCommaSeparated := procedure(endTokType, parsingF := "primaryStmt") {
-		global.push("parseCommaSeparated", {["endTokType", endTokType], ["parsingF", parsingF]});
+	parseCommaSeparated := procedure(endTokType, parsingF := "exprWithEndTok") {
+		global.push("parseCommaSeparated", [["endTokType", endTokType], ["parsingF", parsingF]]);
 		if (toks[idx-1].type notin {"LCurly", "LBrack", "LParan"}) { stop("parseCommaSeparated: start assumption broken"); }
 
 		start_loc := cur_tok().start; // For error message
@@ -870,7 +896,7 @@ class parser(file_path, toks) {
 				break;
 			}
 			x := om;
-			if (parsingF == "primaryStmt") { x := parsePrimaryStmt(t, ["Comma", endTokType]); }
+			if (parsingF == "exprWithEndTok") { x := parseExprWithEndTok(t, ["Comma", endTokType]); }
 			else if (parsingF == "collectionOrPrimary") { x := parseCollectionOrPrimary(t, ["Comma", endTokType]); }
 			else { throw("Unexpected input for parseCommaSeparated. parsingF is not expected to be '" + parsingF + "'"); }
 			res += [x];
@@ -881,16 +907,27 @@ class parser(file_path, toks) {
 		return res;
 	};
 
+	// Call with cur_tok() equal to the first element in parantheses
+	// Returns with cur_tok() equal to the token after the closing parantheses
 	parseParan := procedure() {
+		global.push("parseParan");
+		if (!toks[idx-1].is("LParan")) { stop("parseParan: start assumption borken"); }
+
 		t := toks[idx-1];
-		compileErr(file, t.start, t.end, "`parseParan` is not yet implemented");
+		res := parseExprWithEndTok(chop_tok(), ["RParan"]);
+		res.start := t.start;
+		res.end := toks[idx-1].end;
+
+		if (res.end != toks[idx-1].end) { stop("parseParan: end assumption broken"); }
+		global.pop();
+		return res;
 	};
 
 	// Starts with t == toks[idx-1]
 	// Ends with toks[idx-1] in endTokTypes
 	// Parses Collections or Ranges
 	parseCollectionOrPrimary := procedure(t := chop_tok(), endTokTypes := ["Comma"]) {
-		global.push("parseCollectionOrPrimary", {["t", t], ["endTokTypes", endTokTypes]});
+		global.push("parseCollectionOrPrimary", [["t", t.toStr()], ["endTokTypes", listToStr(endTokTypes)]]);
 		if (toks[idx-1] != t) { stop("parseCollectionOrPrimary: start assumption broken"); }
 
 		res := om;
@@ -898,10 +935,10 @@ class parser(file_path, toks) {
 			case t.is("LBrack"): res := parseList();
 			case t.is("LCurly"): res := parseSet();
 			default:
-				res := parsePrimaryStmt(t, endTokTypes + ["DotDot"]);
+				res := parseExprWithEndTok(t, endTokTypes + ["DotDot"]);
 				if (toks[idx-1].is("DotDot")) {
 					x := om;
-					if (cur_tok() notin endTokTypes) { x := parsePrimaryStmt(chop_tok(), endTokTypes); }
+					if (cur_tok() notin endTokTypes) { x := parseExprWithEndTok(chop_tok(), endTokTypes); }
 					else { chop_tok(); }
 					res := astNode("Range", res.start, toks[idx-1].end, om, [res, x]);
 				}
@@ -946,8 +983,9 @@ class parser(file_path, toks) {
 
 	// Starts with t == toks[idx-1]
 	// Ends with cur_tok() being the next token after the primary value
+	// @Note: Primary means either a literal or a paranthesized expression
 	parsePrimary := procedure(t := chop_tok()) {
-		global.push("parsePrimary", {["t", t]});
+		global.push("parsePrimary", [["t", t.toStr()]]);
 		if (toks[idx-1] != t) {
 			global.p("t: " + t.displayStr());
 			global.p("toks[idx-1]: " + toks[idx-1].displayStr());
@@ -964,23 +1002,11 @@ class parser(file_path, toks) {
 			case t.is("Int"): res := astNode("Int", t.start, t.end, t.data);
 			case t.is("Float"): res := astNode("Float", t.start, t.end, t.data);
 			case t.is("Iden"): res := astNode("Iden", t.start, t.end, t.data);
-			case t.is("Hash"):
-				if (idx > len) {
-					compileErr(file, t.start, "#", "Invalid End of File. Expected a Statement after the hash-symbol");
-				}
-				el := parsePrimary();
-				res := astNode("Len", t.start, toks[idx-1].end, om, [el]);
-			case t.is("Ret"):
-				if (idx > len) {
-					compileErr(file, t.start, "return", "Invalid End of File. Expected a Statement or a Semicolon, but found nothing instead");
-				}
-				stmt := parsePrimaryStmt(chop_tok(), ["SemiColon"]);
-				res := astNode("Ret", t.start, toks[idx-1].end, om, [stmt]);
 			default:
 				if (!t.isPrimary()) {
-					printErr("parsePrimary should only fail if the token isn't primary. The token " + t + " is primary apparently though.");
+					printErr("parsePrimary should only fail if the token isn't a primary. The token " + t.toStr() + " is apparently a primary though.");
 				}
-				compileErr(file, t.start, t.end, "Expected to parse a primary value. Received " + t.displayStr() + " instead");
+				compileErr(file, t.start, t.end, "Expected to parse a primary. Received " + t.displayStr() + " instead");
 		}
 
 		if (toks[idx-1].end != res.end) { stop("parsePrimary: end assumption broken"); }
@@ -988,10 +1014,24 @@ class parser(file_path, toks) {
 		return res;
 	};
 
+	// Starts with cur_tok() being the unary operator
+	// Ends with cur_tok() being the token after the expression
+	parseUnary := procedure() {
+		global.push("parseUnary");
+		if (cur_tok().type notin global.unaryOps) { stop("parseUnary: start assumption broken"); }
+
+		unaryTok := chop_tok();
+		expr := parsePrimary();
+
+		if (expr.end != toks[idx-1].end) { stop("parseUnary: end assumption broken"); }
+		global.pop();
+		return astNode(unaryTok.type, unaryTok.start, expr.end, om, [expr]);
+	};
+
 	// Starts with cur_tok() being the token after lhs
 	// Ends with cur_tok() being the token after the result
 	parseBinOps := procedure(lhs, min_prec := 0) {
-		global.push("parseBinOps", {["lhs", lhs], ["min_prec", min_prec]});
+		global.push("parseBinOps", [["lhs", lhs.toStr()], ["min_prec", min_prec]]);
 		if (lhs.end != toks[idx-1].end) { stop("parseBinOps: start assumption broken"); }
 
 		lookahead := cur_tok();
@@ -1026,7 +1066,7 @@ class parser(file_path, toks) {
 }
 
 simplifyAST := procedure(ast) {
-	global.push("simplifyAST", {["ast", ast]});
+	global.push("simplifyAST", [["ast", ast.toStr()]]);
 	if (ast.className() == "token" || (ast.args == [] && ast.body == [])) { return ast; }
 	if (ast.className() != "astNode") { throw("simplifyAST expects a token or astNode but received: " + ast); }
 
@@ -1039,7 +1079,7 @@ simplifyAST := procedure(ast) {
 };
 
 compile := procedure(file) {
-	global.push("compile", {["file", file]});
+	global.push("compile", [["file", file]]);
 	str := join(readFile(file), "\n");
 	toks := lexer(file, str).lex();
 
@@ -1068,16 +1108,19 @@ main := procedure(params) {
 		printErr("Not enough arguments were provided.");
 		printErr();
 		printErr("Usage:");
-		printErr("setlX setlXC.stlx -p <filename> [-d]");
-		printErr("The flag '-d' is optional and enables debugging mode. The only difference at the moment is that the full Stack-Trace is shown on errors if debugging mode is enabled.");
+		printErr("setlX setlXC.stlx -p <filename> [-d | -dd]");
+		printErr("The flag '-d'  is optional and enables debugging mode.      It prints some useful debugging information.");
+		printErr("The flag '-dd' is optional and enables full-debugging mode. It prints all debugging information, as well as all information that the interpreter has.");
 		return;
 	}
 
-	if (#params >= 2 && params[2] == "-d") {
+	fullDebug := false;
+	if (#params >= 2 && params[2][..2] == "-d") {
 		global.debug := true;
+		if (params[2][3] == "d") { fullDebug := true; }
 	}
 
-	global.push("main", {["params", params]});
+	global.push("main", [["params", params]]);
 	try {
 		compile(params[1]);
 	} catch (e) {
@@ -1085,8 +1128,11 @@ main := procedure(params) {
 		if (global.debug) {
 			print("\nStack:");
 			print(global.stack.toStr());
-			// print("Current Function:");
-			// print(global.stack.get(global.stacklen));
+
+			if (fullDebug) {
+				print("Current Function:");
+				print(global.stack.get(global.stacklen));
+			}
 		}
 	}
 };
