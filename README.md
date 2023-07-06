@@ -15,12 +15,20 @@ There are two ways to bootstrap the compiler:
 
 The SetlX Interpreter is the original program, that was used to run SetlX programs. The Interpreter is written in Java an provided via a JAR-File. This means, that you need to have java installed on your machine to run the interpreter.
 
+If those prerequesites are fulfilled, you can run
+
+```console
+> setlX setlXC.stlx -p setlXC.stlx
+```
+
+After running that command, the compiler will have compiled its own source code into a llvm-intermediate representation
+
 ### Using LLVM
 
 The Compiler uses [LLVM](https://www.llvm.org/) as its backend. This allows us to provide the compiler source code not just in SetlX (`SetlXC.stlx`) but also in LLVM's Intermediate Representation Language (`SetlXC.ll`). This file can be compiled to an executable using LLVM. To do that, run
 
 ```console
-clang SetlXC.ll -o SetlXC.exe
+> clang setlXC.ll -o setlXC.exe
 ```
 
 ## FAQ
@@ -39,4 +47,4 @@ However, there are certain cases, where the compiler behaves intentionally diffe
 
 The Interpreter lets you declare classes inside of procedures. However, the Interpreter crashes when returning said class from the procedure.
 
-The Compiler instead fails and returns an error when you declare a class in a procedure.
+The Compiler instead fails and returns a compilation-error when you declare a class in a procedure.
