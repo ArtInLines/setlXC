@@ -2,7 +2,13 @@
 
 SetlXC is a Compiler for the Programming Language [SetlX](https://randoom.org/Software/SetlX/) written in SetlX itself.
 
+## Disclaimer
+
+**This Project is a Work-In-Progress. As of now, only Tokenization and large parts of parsing are actually implemented.**
+
 ## Bootstrapping the Compiler
+
+**This is not possible yet, as the compiler is not capable of compiling itself yet. The information in this section will only be relevant in the future.**
 
 Since the Compiler is self-hosted (i.e. written in the language it compiles), the question arises of how to compile the compiler. More succintly, how does one bootstrap the compiler?
 
@@ -35,9 +41,10 @@ The Compiler uses [LLVM](https://www.llvm.org/) as its backend. This allows us t
 
 ### WhY?
 
-Why not?
+1. Why not?
+2. When making a program of more than a couple dozen lines in SetlX (for example [this project](https://github.com/ArtInLines/differentiator)), debugging became very difficult, as the interpreter spams the console full with mostly unnecessary information. A key motiviation behind this compiler was thus to provide better and usable error messages.
 
-### Differences to Interpreter
+### Differences to the Interpreter
 
 The Compiler aims to mimic the SetlX's interpreter's behaviour as much as possible.
 
