@@ -498,6 +498,7 @@ class parser(file_path, toks) {
 		global.push("parseStmt", [["additionalCases", setToStr(additionalCases, x |=> x[1])], ["invalidCases", setToStr(invalidCases, x |=> x[1])]]);
 		t := chop_tok();
 		res := om;
+		// global.p("parseStmt - t: " + t.toStr() + ", cur_tok(): " + cur_tok().toStr());
 		switch {
 			case t.type in domain(invalidCases):    res := compileErr(file, t.start, t.end, invalidCases[t.type]);
 			case t.type in domain(additionalCases): res := additionalCases[t.type]();
@@ -515,29 +516,40 @@ class parser(file_path, toks) {
 			case t.is("Ret"):
 				expr := parseExprWithEndTok(chop_tok(), "SemiColon");
 				res := astNode("Ret", t.start, toks[idx-1].end, om, [expr]);
-			case cur_tok().type in global.assignToks:
-				nt := chop_tok();
-				if (t.type notin {"Iden", "Index", "Property"}) {
-					compileErr(file, t.start, nt.end, "Expected an identifier before assignment. Found a " + t.displayStr() + " instead");
-				}
-				if (t.className() == "token") {
-					this.idx -= 1;
-					t        := parsePrimary(t);
-					this.idx += 1;
-				}
-				val := parseExprWithEndTok(chop_tok(), "SemiColon");
-				if (nt.type != "Assign") {
-					bin_op_typ := nt.type[..-7]; // -7 comes from `- #"Assign" - 1`
-					bin_op     := astNode("BinOp", t.start, val.end, bin_op_typ, [t, val]);
-					res        := astNode("Assign", t.start, val.end, om, [t, bin_op]);
-				} else {
-					res := astNode("Assign", t.start, val.end, om, [t, val]);
-				}
-			case t.isPrimary():
-				res := parseExprWithEndTok(t, "SemiColon");
+			case t.isPrimary(): res := parseExprOrAssignWithEndTok(t, "SemiColon");
 			default: compileErr(file, t.start, t.end, "Invalid Token starting Statement: " + t.displayStr());
 		}
 		// global.p("parsed stmt: " + res.displayStr());
+		global.pop();
+		return res;
+	};
+
+	// Starts with t == toks[idx-1] == first token of expression/assignment
+	// Expects t to be a primary token as well
+	// Ends after token of endTokTypes
+	// @Name is very long but at least descriptive???
+	parseExprOrAssignWithEndTok := procedure(t, endTokTypes) {
+		if (!isList(endTokTypes)) { endTokTypes := [endTokTypes]; }
+		global.push("parseExprOrAssignWithEndTok", [["t", t.toStr()], ["endTokTypes", listToStr(endTokTypes)]]);
+		if (!t.isPrimary()) { stop("parseExprOrAssignWithEndTok - start assumption broken"); }
+
+		res := parseExprWithEndTok(t, endTokTypes + global.assignToks);
+		if (toks[idx-1].type in global.assignToks) {
+			assignTok := toks[idx-1];
+			if (res.type notin {"Iden", "Index", "Property"}) {
+				compileErr(file, res.start, assignTok.end, "Expected an identifier before assignment. Found a " + res.displayStr() + " instead");
+			}
+			val := parseExprWithEndTok(chop_tok(), endTokTypes);
+			if (assignTok.type != "Assign") {
+				bin_op_typ := assignTok.type[..-7]; // -7 comes from `- #"Assign" - 1`
+				bin_op     := astNode("BinOp", res.start, val.end, bin_op_typ, [res, val]);
+				res        := astNode("Assign", res.start, val.end, om, [res, bin_op]);
+			} else {
+				res := astNode("Assign", res.start, val.end, om, [res, val]);
+			}
+		}
+
+		if (toks[idx-1].type notin endTokTypes) { stop("parseExprOrAssignWithEndTok: end assumption broken"); }
 		global.pop();
 		return res;
 	};
@@ -615,7 +627,6 @@ class parser(file_path, toks) {
 				global.p("nt.loc: " + nt.start.locStr() + " - " + nt.end.locStr());
 				compileErr(file, t.start, nt.end, "Unhandled case for initial token " + t.displayStr() + " and next token " + nt.displayStr() + ". This case was not implemented yet");
 		}
-
 
 		if (toks[idx-1].type notin endTokTypes) { stop("parseExprWithEndTok: end assumption broken"); }
 		global.pop();
@@ -881,7 +892,7 @@ class parser(file_path, toks) {
 	// Call with the cur_tok() equal to the bginning of the first comma-separated element
 	// Returns with cur_tok() equal to the token after endTokType
 	// parsingF should have the following signature: (token, [..endTokTypes])
-	parseCommaSeparated := procedure(endTokType, parsingF := "exprWithEndTok") {
+	parseCommaSeparated := procedure(endTokType, parsingF := "exprOrAssign") {
 		global.push("parseCommaSeparated", [["endTokType", endTokType], ["parsingF", parsingF]]);
 		if (toks[idx-1].type notin {"LCurly", "LBrack", "LParan"}) { stop("parseCommaSeparated: start assumption broken"); }
 
@@ -896,7 +907,7 @@ class parser(file_path, toks) {
 				break;
 			}
 			x := om;
-			if (parsingF == "exprWithEndTok") { x := parseExprWithEndTok(t, ["Comma", endTokType]); }
+			if (parsingF == "exprOrAssign") { x := parseExprOrAssignWithEndTok(t, ["Comma", endTokType]); }
 			else if (parsingF == "collectionOrPrimary") { x := parseCollectionOrPrimary(t, ["Comma", endTokType]); }
 			else { throw("Unexpected input for parseCommaSeparated. parsingF is not expected to be '" + parsingF + "'"); }
 			res += [x];
@@ -1006,7 +1017,7 @@ class parser(file_path, toks) {
 				if (!t.isPrimary()) {
 					printErr("parsePrimary should only fail if the token isn't a primary. The token " + t.toStr() + " is apparently a primary though.");
 				}
-				compileErr(file, t.start, t.end, "Expected to parse a primary. Received " + t.displayStr() + " instead");
+				compileErr(file, t.start, t.end, "Expected to parse a primary. Received '" + t.toStr() + "' instead");
 		}
 
 		if (toks[idx-1].end != res.end) { stop("parsePrimary: end assumption broken"); }
