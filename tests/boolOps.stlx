@@ -1,0 +1,7 @@
+print(true && (false || true));
+print(!true || !(true && !false) && true || false);
+print(true <==> false);
+print(true <!=> false);
+print(!true <==> (false <==> (true <!=> false)));
+print(false => true);
+print(false => !(true <==> false) => false);
