@@ -101,7 +101,7 @@ class global() {
 			["{", "LCurly"],
 			["}", "RCurly"],
 			["|->", "Lambda"],
-			["|=>", "ScopedLambda"], // TODO: Rename
+			["|=>", "ScopedLambda"], // @Name
 			["<==>", "Equiv"],
 			["<!=>", "Xor"],
 			["=>", "Entail"],
@@ -141,7 +141,7 @@ class global() {
 
 		assignToks := ["Assign", "AddAssign", "SubAssign", "MulAssign", "DivAssign", "ModAssign", "IntDivAssign"];
 
-		unaryOps := ["AddColl", "MulColl", "Sub", "Add", "Not", "Hash"];
+		unaryOps := ["AddColl", "MulColl", "Sub", "Not", "Hash"];
 
 		// The higher the precedence, the earlier the operation is evaluated
 		binOpPrecs := {
