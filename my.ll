@@ -1,5 +1,3 @@
-target triple = "x86_64-pc-windows-msvc19.29.30133"
-
 ; Declare the string constant as a global constant.
 @.str = private unnamed_addr constant [9 x i8] c"my test \00"
 

@@ -2,8 +2,7 @@
 
 int main(void)
 {
-	int y = 7;
-	int x = y + 33;
-	printf("%d\n", x);
+	char s[] = "test";
+	puts(s);
 	return 0;
 }
