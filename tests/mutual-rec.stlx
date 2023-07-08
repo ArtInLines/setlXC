@@ -1,0 +1,12 @@
+a := procedure(x) {
+	if (x <= 0) { return; }
+	print("a");
+	b(x-1);
+};
+
+b := procedure(x) {
+	print("b");
+	a(x-1);
+};
+
+a(10);
