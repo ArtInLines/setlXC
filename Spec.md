@@ -44,6 +44,39 @@ The AST is defined as follows:
 <!-- @Incomplete astData, type -->
 
 ```c
+typedef enum nodeType { // Represented as strings in SetlX
+	Block,    // Data: List of Statements
+	Ret,      // Data: Expr to return
+	Assign,   // Data: Iden/Index/Property and Expr for value
+	BinOp,    // Data: operator, left, right
+	UnaryOp,  // Data: operator, operand
+	Range,    // Data: Expr to range on, first & second range parameter (each could be om) @Note: Both can't be om, as SetlX doesn't accept that @Note: If the parameter is om, it can be subsituted without semantic change: for the first with 1, for the second with #(expr)
+	Index,    // Data: Expr to index, parameter for indexing
+	Call,     // Data: Iden/Index/Property to call, list of arguments
+	Property, // Data: Iden/Index/Property to access property of, Iden of property to access
+	Proc,     // Data: List of arguments, body
+	If,       // Data: Condition, body
+	Else,     // Data: Condition (can be om), body
+	Class,    // Data: Class name, List of arguments, List of Statements
+	Static,   // Data: List of Statements
+	For,      // Data: variable name, Expr for collection, body
+	While,    // Data: Condition, body
+	DoWhile,  // Data: Condition, body
+	Set,      // Data: List of Expr
+	List,     // Data: List of Expr
+	Str,      // Data: String
+	Int,      // Data: String of Int
+	Float,    // Data: String of Float
+	Iden,	  // Data: String
+} nodeType;
+
+// @Decide: Should each nodeType get its own structure or should all astData simply be a list of astNode's, that just have to be interpreted in the correct order? The latter would be simpler and less overhead, but introduce more implicit state and might be harder to debug???
+
+typedef struct astCondBlock { // For If/While/etc.
+	astNode *cond;
+	astNode *body;
+} astCondBlock;
+
 typedef union astData {
 	// @TODO
 } astData;
@@ -53,11 +86,11 @@ typedef struct type {
 } type;
 
 typedef struct astNode {
-	string   node;
-	loc      start;
-	loc      end;
-	astData *data;
-	type    *t;     // Is null before verification phase
+	nodeType  node;
+	loc       start;
+	loc       end;
+	astData  *data;
+	type     *t;     // Is null before verification phase
 } astNode;
 ```
 
