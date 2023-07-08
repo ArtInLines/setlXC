@@ -598,13 +598,20 @@ class parser(file_path, toks) {
 				this.idx -= 2;
 				res := parseExprWithEndTok(parsePrimary(), endTokTypes);
 			case t.className() == "astNode" && nt.is("LBrack"):
-				// @bug Ranges currently ignore the first parameter of the range
-				stmt := parseExprWithEndTok(chop_tok(), ["RBrack", "DotDot"]);
+				// @Note: The idea is to parse an Index. The index can either be a normal expression or a range
+				// Since a range can have an implicit start token, we only call parseExprWithEndTok if there is
+				// no implicit start value for range.
+				// @Cleanup This piece of code is probably hard to read and kind of hacky
+				nt := chop_tok();
+				stmt := om;
+				if (!nt.is("DotDot")) { stmt := parseExprWithEndTok(nt, ["RBrack", "DotDot"]); }
 				if (toks[idx-1].is("DotDot")) {
 					x := om;
 					if (!cur_tok().is("RBrack")) { x := parseExprWithEndTok(chop_tok(), ["RBrack"]); }
 					else { chop_tok(); }
-					stmt := astNode("Range", t.start, toks[idx-1].end, om, [t, x]);
+
+					if (stmt == om) { stmt := astNode("Range", t.start, toks[idx-1].end, om, [t,       x]); }
+					else            { stmt := astNode("Range", t.start, toks[idx-1].end, om, [t, stmt, x]); }
 				}
 				node := astNode("Index", t.start, toks[idx-1].end, om, [t, stmt]);
 				res := parseExprWithEndTok(node, endTokTypes);
