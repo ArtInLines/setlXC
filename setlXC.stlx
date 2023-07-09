@@ -220,13 +220,12 @@ class token(type, start, end, data := om) {
 	toStr      := displayStr;
 }
 
-class astNode(type, start, end, data := om, args := [], body := []) {
+class astNode(type, start, end, data := om, args := []) {
 	type  := type;
 	start := start;
 	end   := end;
 	data  := data;
 	args  := args;
-	body  := body;
 	className := procedure() { return "astNode"; };
 	is        := procedure(typ) { return type == typ; };
 	equals    := procedure(other) { return other != om && type == other.type && start == other.start && end == other.end && data == other.data; }; // Not checking children for equality for performance reasons
@@ -235,15 +234,11 @@ class astNode(type, start, end, data := om, args := [], body := []) {
 		if (data != om && isObject(data) && data.className() == "astNode") { dat := dat.displayStr(); }
 		return dat;
 	};
-	dumpToStr := procedure(show_loc := false, indent_level := 0, single_indent := " ") {
+	dumpToStr := procedure(show_loc := false, indent_level := 0, single_indent := "  ") {
 		s := single_indent * indent_level + "@" + type;
 		if (data != om) { s += "('" + dataToStr() + "')"; }
 		if (show_loc) { s += " [" + start.locStr() + " - " + end.locStr() + "]"; }
-
-		if (#args > 0 && #body > 0) { s += "\n" + single_indent * (indent_level + 1) + "Args:"; }
-		for (c in args) { s += "\n" + c.dumpToStr(show_loc, indent_level + 2, single_indent); }
-		if (#body > 0) { s += "\n" + single_indent * (indent_level + 1) + "Body:"; }
-		for (stmt in body) { s += "\n" + stmt.dumpToStr(show_loc, indent_level + 2, single_indent); }
+		for (c in args) { s += "\n" + c.dumpToStr(show_loc, indent_level + 1, single_indent); }
 		return s;
 	};
 	displayStr := procedure() {
@@ -459,6 +454,9 @@ class parser(file_path, toks) {
 	idx  := 1;
 	className := procedure() { return "parser"; };
 
+	// @Cleanup provide further functions like lastTok() to remove necessity for manually updating idx
+	// @Performance Don't create list of all tokens, but only compute them as required and store only the last x tokens in a buffer
+
 	cur_tok := procedure() {
 		return toks[idx];
 	};
@@ -602,6 +600,7 @@ class parser(file_path, toks) {
 				// Since a range can have an implicit start token, we only call parseExprWithEndTok if there is
 				// no implicit start value for range.
 				// @Cleanup This piece of code is probably hard to read and kind of hacky
+
 				nt := chop_tok();
 				stmt := om;
 				if (!nt.is("DotDot")) { stmt := parseExprWithEndTok(nt, ["RBrack", "DotDot"]); }
@@ -641,6 +640,54 @@ class parser(file_path, toks) {
 		return res;
 	};
 
+	// Parses a Block of Statements until the endTok is reached.
+	// Starts with toks[idx-1] being the opening token for the block (usually LCurly)
+	// Ends with endTok
+	// @Note it would be more common to end after endTok, but the caller's of this function usually require it to end with endTok
+	parseBlock := procedure(endTok := "RCurly") {
+		global.push("parseBlock", [["endTok", endTok]]);
+		if (idx == 1) { stop("parseBlock - start assumption broken"); }
+
+		start := toks[idx-1].start;
+		stmts := [];
+		while (idx <= len && !cur_tok().is(endTok)) {
+			stmts += [parseStmt()];
+		}
+		if (idx > len) { compileErr("Unexpected End of File. Expected Block to end with " + endTok, start, toks[len].end); }
+		block := astNode("Block", start, cur_tok().end, om, stmts);
+
+		if (!cur_tok().is(endTok)) { stop("parseBlock - end assumption broken"); }
+		global.pop();
+		return block;
+	};
+
+	// Parses a list of argument declarations (e.g for class/procedure declarations)
+	// Starts wth toks[idx-1] being the starting delimiter for the argList (usually LParan)
+	// Ends after endTok
+	parseArgList := procedure(endTok := "RParan") {
+		global.push("parseArgList", [["endTok", endTok]]);
+		if (idx == 1) { stop("parseArgList - start assumption broken"); }
+
+		start := toks[idx-1].start;
+		args := parseCommaSeparated(endTok);
+
+		// Check that arguments are of the correct types && all args have default values after the first argument with default value
+		needsAssignment := false;
+		for (arg in args) {
+			isAssigned := arg.is("Assign");
+			if (needsAssignment && !isAssigned) { compileErr(file, arg.start, arg.end, "The parameter requires a default value, since a parameter before already has a default value"); }
+			needsAssignment := isAssigned;
+
+			// @TODO Instead of putting the token in the error message, the token should be converted to its corresponding character
+			// Since this is a relatively common pattern for error messages in the parser, we should have a function on the token
+			// to convert it to a human readable token.
+			if (!isAssigned && !arg.is("Iden")) { compileErr(file, arg.start, arg.end, "Parameters must be identifiers. Found " + arg.type + " instead."); }
+		}
+
+		global.pop();
+		return astNode("ArgList", start, toks[idx-1].end, om, args);
+	};
+
 	// Starts with toks[idx-2] == "procedure" & t == toks[idx-1]
 	// End with toks[idx-1] == ending "}"
 	parseProc := procedure(t := chop_tok()) {
@@ -652,22 +699,18 @@ class parser(file_path, toks) {
 		if (!t.is("LParan")) {
 			compileErr(file, t.start, loc.toStr(start_loc, t.end), "Syntax Error. Procedure-Definitions should have the following format: " + proc_format);
 		}
-		argList := parseCommaSeparated("RParan");
+		argList := parseArgList();
 		tt := chop_tok();
 		if (!tt.is("LCurly")) {
 			compileErr(file, tt.start, loc.toStr(start_loc, tt.end), "Syntax Error. Procedure-Definitions should have the following format: " + proc_format);
 		}
-
-		body := [];
-		while (idx <= len && !cur_tok().is("RCurly")) {
-			body += [parseStmt()];
-		}
+		body := parseBlock();
 
 		if (idx > len) {
 			compileErr(file, start_loc, toks[-1].end, "Syntax Error. Procedure-Definitions should have the following format: " + proc_format);
 		}
 		end_loc := chop_tok().end;
-		res := astNode("Proc", start_loc, end_loc, om, argList, body);
+		res := astNode("Proc", start_loc, end_loc, om, [argList, body]);
 
 		// global.p("parsed proc:\n" + res.dumpToStr(1));
 		if (!toks[idx-1].is("RCurly")) { stop("parseProc: end assumption broken"); }
@@ -687,19 +730,14 @@ class parser(file_path, toks) {
 		cond := parseExprWithEndTok(chop_tok(), ["RParan"]);
 		if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: If-Satements should have the following form: " + if_form); }
 
-		body := [];
-		while (idx <= len && !cur_tok().is("RCurly")) {
-			body += [parseStmt()];
-		}
-		if (idx > len) {
-			compileErr(file, start_loc, toks[-1].end, "Unclosed Curly Braces in If-statement");
-		}
+		body := parseBlock();
 
 		next := chop_tok();
 		end_loc := next.end;
 		if (!toks[idx-1].is("RCurly")) { stop("parseIf: end assumption broken"); }
 		global.pop();
-		return astNode("If", start_loc, end_loc, om, [cond], body);
+
+		return astNode("If", start_loc, end_loc, om, [cond, body]);
 	};
 
 	// Starts with toks[idx-1] == "Else"
@@ -710,27 +748,24 @@ class parser(file_path, toks) {
 		if (!toks[idx-1].is("Else")) { stop("parseElse: start assumption broken"); }
 		start_loc := toks[idx-1].start;
 
-		conds := [];
+		cond := om;
 		if (cur_tok().is("If")) {
 			chop_tok();
 			if (!chop_tok().is("LParan")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: Else-Satements should have the following form: " + else_form); }
-			conds += [parseExprWithEndTok(chop_tok(), ["RParan"])];
-			if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: Else-Satements should have the following form: " + else_form); }
+			cond := [parseExprWithEndTok(chop_tok(), ["RParan"])];
 		}
 
-		body := [];
-		while (idx <= len && !cur_tok().is("RCurly")) {
-			body += [parseStmt()];
-		}
-		if (idx > len) {
-			compileErr(file, start_loc, toks[-1].end, "Unclosed Curly Braces in Else-statement");
-		}
+		if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: Else-Satements should have the following form: " + else_form); }
+		body := parseBlock();
 
 		next := chop_tok();
 		end_loc := next.end;
+		args := [cond, body];
+		if (cond == om) { args := [body]; }
+
 		if (!toks[idx-1].is("RCurly")) { stop("parseElse: end assumption broken"); }
 		global.pop();
-		return astNode("Else", start_loc, end_loc, om, conds, body);
+		return astNode("Else", start_loc, end_loc, om, args);
 	};
 
 	parseMatch := procedure() {
@@ -763,7 +798,7 @@ class parser(file_path, toks) {
 		if (!chop_tok().is("LParan")) {
 			compileErr(file, toks[idx-1].start, loc.toStr(file, name.start, cur_tok().start), "Syntax Error. Class-Declarations should have the following format: " + class_format);
 		}
-		argList := parseCommaSeparated("RParan");
+		argList := parseArgList();
 		if (!chop_tok().is("LCurly")) {
 			compileErr(file, toks[idx-1].start, loc.toStr(file, name.start, cur_tok().start), "Syntax Error. Class-Declarations should have the following format: " + class_format);
 		}
@@ -778,7 +813,7 @@ class parser(file_path, toks) {
 
 		if (!toks[idx-1].is("RCurly")) { stop("parseclass: end assumption broken"); }
 		global.pop();
-		return astNode("Class", start_loc, end_loc, class_name, argList, stmts);
+		return astNode("Class", start_loc, end_loc, class_name, [argList, stmts]);
 	};
 
 	// Call with toks[idx-1] == "Static"
@@ -818,23 +853,19 @@ class parser(file_path, toks) {
 
 		if (!chop_tok().is("LParan")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: For-Satements should have the following form: " + for_form); }
 		var := parsePrimary(chop_tok());
+		if (!var.is("Iden")) { compileErr(file, start_loc, var.end, "Only identifiers are allowed as variables in for-loops. Found '" + var.type + "' instead."); }
+
 		if (!chop_tok().is("In")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: For-Satements should have the following form: " + for_form); }
 		collection := parseExprWithEndTok(chop_tok(), ["RParan"]);
 		if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: For-Satements should have the following form: " + for_form); }
 
-		body := [];
-		while (idx <= len && !cur_tok().is("RCurly")) {
-			body += [parseStmt()];
-		}
-		if (idx > len) {
-			compileErr(file, start_loc, toks[-1].end, "Unclosed Curly Braces in For-statement");
-		}
+		body := parseBlock();
 
 		next := chop_tok();
 		end_loc := next.end;
 		if (!toks[idx-1].is("RCurly")) { stop("parseFor: end assumption broken"); }
 		global.pop();
-		return astNode("For", start_loc, end_loc, om, [var, collection], body);
+		return astNode("For", start_loc, end_loc, var, [collection, body]);
 	};
 
 	parseWhile := procedure() {
@@ -847,19 +878,13 @@ class parser(file_path, toks) {
 		cond := parseExprWithEndTok(chop_tok(), ["RParan"]);
 		if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: While-Satements should have the following form: " + while_form); }
 
-		body := [];
-		while (idx <= len && !cur_tok().is("RCurly")) {
-			body += [parseStmt()];
-		}
-		if (idx > len) {
-			compileErr(file, start_loc, toks[-1].end, "Unclosed Curly Braces in While-statement");
-		}
+		body := parseBlock();
 
 		next := chop_tok();
 		end_loc := next.end;
 		if (!toks[idx-1].is("RCurly")) { stop("parseWhile: end assumption broken"); }
 		global.pop();
-		return astNode("While", start_loc, end_loc, om, [cond], body);
+		return astNode("While", start_loc, end_loc, om, [cond, body]);
 	};
 
 	parseDoWhile := procedure() {
@@ -869,13 +894,7 @@ class parser(file_path, toks) {
 		start_loc := toks[idx-1].start;
 
 		if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: DoWhile-Satements should have the following form: " + dowhile_form); }
-		body := [];
-		while (idx <= len && !cur_tok().is("RCurly")) {
-			body += [parseStmt()];
-		}
-		if (idx > len) {
-			compileErr(file, start_loc, toks[-1].end, "Unclosed Curly Braces in DoWhile-statement");
-		}
+		body := parseBlock();
 
 		if (!chop_tok().is("While")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: DoWhile-Satements should have the following form: " + dowhile_form); }
 		if (!chop_tok().is("LParan")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: DoWhile-Satements should have the following form: " + dowhile_form); }
@@ -884,7 +903,7 @@ class parser(file_path, toks) {
 
 		end_loc := toks[idx-1].end;
 		global.pop();
-		return astNode("DoWhile", start_loc, end_loc, om, [cond], body);
+		return astNode("DoWhile", start_loc, end_loc, om, [cond, body]);
 	};
 
 	parseCheck := procedure() {
@@ -897,7 +916,7 @@ class parser(file_path, toks) {
 		compileErr(file, t.start, t.end, "`parseBacktrack` is not yet implemented");
 	};
 
-	// Call with the cur_tok() equal to the bginning of the first comma-separated element
+	// Call with the cur_tok() equal to the beginning of the first comma-separated element
 	// Returns with cur_tok() equal to the token after endTokType
 	// parsingF should have the following signature: (token, [..endTokTypes])
 	parseCommaSeparated := procedure(endTokType, parsingF := "exprOrAssign") {
@@ -1117,7 +1136,7 @@ compile := procedure(file) {
 
 	ast := parser(file, toks).parse();
 	print("AST:");
-	print(ast.dumpToStr(false));
+	print(ast.dumpToStr(global.debug));
 	global.pop();
 };
 
