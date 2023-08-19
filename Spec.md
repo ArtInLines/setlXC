@@ -3,9 +3,8 @@
 1. Tokenize the Source File (String -> Token[])
 2. Parse the Token-Stream (Token[] -> AST)
 3. Include imported files (AST -> AST)
-4. Verify the AST (AST -> ScopeData)
-5. Create IR (ScopeData -> IR)
-6. Write IR to LLVM (IR -> String)
+4. Create an IR (AST -> IR)
+5. Transform LLVM to IR (IR -> LLVM)
 
 ## 1. Tokenization
 
@@ -22,7 +21,7 @@ typedef struct loc {
 } loc;
 
 typedef struct token {
-	string  type;
+	string  id;
 	loc     start;
 	loc     end;
 	string *data;  // Can be om
@@ -64,20 +63,29 @@ typedef enum nodeType { // Represented as strings in SetlX
 	Str,      // Data: String
 	Int,      // Data: String of Int
 	Float,    // Data: String of Float
-	Iden,	  // Data: String
+	Iden;	  // Data: String
 } nodeType;
 
-typedef struct type {
-	// @Incomplete
-} type;
+typedef struct baseType { // See chapter 4 for an overview of these base types
+	Int,
+	Float,
+	Rational,
+	Bool,
+	String,
+	Om,
+	List,
+	Set,
+	Proc,
+	Any,
+	None;
+} baseType;
 
 typedef struct astNode {
-	nodeType  node;
+	nodeType  id;
 	loc       start;
 	loc       end;
 	astNode  *data;   // Single data point, usually an Identifier/Index/Property - can be om
-	astNode   args[]; // List of arguments to the astNode. Depends on the type of the node (see nodeType definition above)
-	type     *t;      // Is om before verification phase
+	astNode   args[]; // List of arguments to the astNode. Depends on the exprType of the node (see nodeType definition above)
 } astNode;
 ```
 
@@ -85,45 +93,104 @@ typedef struct astNode {
 
 <!-- @Study Can included files reference variables set in including file? -->
 <!-- @Study How does the interpreter handle inputs that aren't string-literals? Because for the compiler it would be easiest to only allow string-literals as arguments to load() -->
+<!-- @Study Can load be overwritten? -->
 
 SetlX allows users to include other files via the `load(string file_name)` function. In the Interpreter, this function executes all statements made in the provided file. For the compiler, this means that the file-contents can more or less simply be copy-pasted in and parsed as though they were in a single file.
 
 The idea here is to check for any function calls of `load`, then tokenize and parse the inputs of the given file and simply insert the AST from there into this AST.
 
-## 4. Verification
+## 4. Intermediate Representation
 
-The aim of this step is two-fold:
+-   Currently being worked on
 
-1. Infer types of variables and provide simple typechecking
-2. Bring data into a structure, that can be directly used to create the intermediate representation
+Transforms the ASTNode produced by parsing into an intermediate representation, that can easily be transformed into LLVM code.
 
-### Typechecking
+The intermediate representation uses primarily two different structures, which are more thoroughly specified below:
 
-For a given procedure, we can roughly infer input and output types. This inference must be based on builtin operations and functions, that have clearly defined signatures. These types must also be structured hierachically, with some top type, that will be infered if no better information is accessible.
+-   `IR`: Contains all information required to create LLVM code
+-   `Inst`: Represents an individual instruction in the intermediate representation.
 
-<!-- @Incomplete What about recursive and mutually recursive procedures? Should output type simply be assumed to be the 'any' unless it can be reduced later on? Reducing it later on would require a second pass though, right? -->
+<!-- @Incomplete classes, objects and lambdas are ignored here still -->
 
-The types of variables can be infered from their assignments. Since later assignments can increase the possible type of the variable, we can only check for type-errors in a second pass.
+For generating the code, we need certain information. Firstly we need to know the list of functions defined. SetlX lets the user bind procedures to variables the same as any other object and importantly, a variable can be reassigned. It is thus not guaranteed that a name will always point to a function. Thus we treat all functions in SetlX to be unnamed and all variables assigned to those procedures are treated like function pointers in C.
 
-<!--
-@Study We would like to create a new variable for assignments that increase the type of the variable. This is only possible if we know the exact order of operations that affect the provided variable. This might not always be the case. Take for example:
+The Instructions in the IR are not recursively defined. Instead, they use a stack with implicit definitions on how they operate on said stack. Each procedure has its own internal stack, on which the instructions operate.
 
-// This example uses mutual recursion, but that's probably not even necessary
-a := 3; // a is an int
-f := procedure()  { return "Hello " + a; } // Signature: void -> String
-g := procedure(x) { a := h(x); return a; } // Signature: void -> any   (with side-effects)
-h := procedure(x) {                        // Signature: any  -> String | any
-	if (a == x) { return f();      }
-	else        { return g(x - 1); }
-}
-g(5); // Especially impossible if 5 would come from user input
--->
+```c
+typedef struct instType { // Represented as strings in SetlX
+	// Binary Ops
+	And,        // [op1, op2] -> [res]
+	Or,         // [op1, op2] -> [res]
+	Eq,         // [op1, op2] -> [res]
+	Ge,         // [op1, op2] -> [res]
+	Le,         // [op1, op2] -> [res]
+	Gt,         // [op1, op2] -> [res]
+	Lt,         // [op1, op2] -> [res]
+	In,         // [op1, op2] -> [res]
+	Add,        // [op1, op2] -> [res]
+	Sub,        // [op1, op2] -> [res]
+	Mul,        // [op1, op2] -> [res]
+	Div,        // [op1, op2] -> [res]
+	Mod,        // [op1, op2] -> [res]
+	IntDiv,     // [op1, op2] -> [res]
+	Exp,        // [op1, op2] -> [res]
+	CartProd,   // [op1, op2] -> [res]
+	AddCollBin, // [op1, op2] -> [res]
+	MulCollBin, // [op1, op2] -> [res]
+	// Unary Ops
+	AddColl,    // [op] -> [res]
+	MulColl,    // [op] -> [res]
+	Not,        // [op] -> [res]
+	Neg,        // [op] -> [res]
+	Len,        // [op] -> [res]
+	// Other Ops
+	Assign,     // [val, var] -> []
+	Ret,        // [...] -> []
+	Range,      // [coll1, lo, hi] -> [coll2]
+	Index,      // [coll, idx] -> [val]
+	Call,       // [...args, arglen, proc] -> [val]
+	Label,      // [] -> [str] | Labels for jumps
+	CondJmp,    // [] Jumps to given label if last expression computes "false"
+	Jmp,        // [label] -> [] | Unconditional Jump to given label
+	Set,        // [] -> [coll]
+	List,       // [] -> [coll]
+	Str,        // [] -> [str]
+	Int,        // [] -> [num]
+	Float,      // [] -> [num]
+	Proc,		// [] -> [proc]
+	Var;        // [] -> [var]
+} instType;
 
-The actual typechecking would then only happen in a second pass. Here we would simply make sure that the types of the input variables have some overlap with the expected types for function parameters and operators. We must accept the program as correct both if the variable's type is smaller and if it's bigger than the expected type. This is because SetlX is a very weakly typed language, where variables can change their types throughout the program.
+typedef union instData {
+	String,
+	List,
+	Set,
+	Int,
+	Float
+} instData;
 
-### ScopeData
+typedef struct inst {
+	instType id;
+	instData data;  // Only needed when a value is pushed without being computable from the stack's current contents
+	loc      start;
+	loc      end;
+} inst;
 
-ScopeData is the current working title for the kind of structure expected by the next phase. The idea is that this structure is recursively defined with the outermost value defining the global scope of the program. The structure would also contain information about the functions and variables in the scope, as well as the statements, that are meant to be executed (which would be stored as astNodes probably).
+typedef struct proc {
+	string   name; // Potentially useful for debugging
+	inst[][] args; // List of arguments, each of which is a list of 'Var' and 'Assignment' insts
+	string[] vars; // Variables (aside from arguments) that are used in the function
+	inst[]   code; // Actual operations in the procedure
+	loc      start;
+	loc      end;
+} proc;
+
+typedef struct ir {
+	proc[]   procs;
+	string[] vars; // Necessary to initialize to om
+	inst[]   code;
+} ir;
+```
 
 ## 5. Intermediate Representation
 
