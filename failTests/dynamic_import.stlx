@@ -1,0 +1,2 @@
+file_name := "some-file.stlx";
+load(file_name);

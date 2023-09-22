@@ -55,3 +55,13 @@ However, there are certain cases, where the compiler behaves intentionally diffe
 The Interpreter lets you declare classes inside of procedures. However, the Interpreter crashes when returning said class from the procedure.
 
 The Compiler instead fails and returns a compilation-error when you declare a class in a procedure.
+
+#### Importing seperate files
+
+To import code from separate files in SetlX, you need to use the `load(file_name)` function. When using the interpreter, this function acts as a function like any other. Among other things, this means that you can overwrite the `load` function and can also dynamically load any file at any time.
+
+The Compiler does not allow this. If it were to allow it, then every compiled binary would need to include the necessary code to read, parse and dynamically load code from another source file. In almost all cases, it is completely sufficient to only support static imports.
+
+The Compiler thus forbids assigning any value to the variable `load` and requires the file_name to be a string literal. Lastly, calls to the `load` function are only allowed in the outermost scope.
+
+Furthermore, the Compiler also makes sure to import any file no more than once, unlike the Interpreter. You are allowed to import the same file several times, yet it will only be loaded and included the first time.

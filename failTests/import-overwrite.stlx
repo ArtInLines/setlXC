@@ -1,0 +1,5 @@
+load := procedure(file) {
+	print("Loading " + file + "...");
+};
+
+load("nothing.stlx");
