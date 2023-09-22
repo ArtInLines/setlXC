@@ -4,7 +4,7 @@
 class stackNode(n, args) {
 	this.name     := n;
 	this.args     := args; // List of argument-tuples (names, values) @Note: values must also be provided as strings
-	this.children := []; // List of children nodes
+	this.children := [];   // List of children nodes
 	argsToStr := procedure() {
 		if (#this.args == 0) { return ""; }
 		s := "(";
@@ -24,12 +24,14 @@ class stackNode(n, args) {
 		return s;
 	};
 	// Get a string representation of the current stack
-	toStr := procedure() {
-		s := this.name + " " + this.argsToStr();
-		node := this;
-		while (node.children != []) {
-			node := node.children[#node.children];
-			s += "\n" + node.name + " " + node.argsToStr();
+	toStr := procedure(len := global.stacklen) {
+		depth := 0;
+		s     := this.name + " " + this.argsToStr();
+		node  := this;
+		while (node.children != [] && depth < len) {
+			node  := node.children[#node.children];
+			s     += "\n" + node.name + " " + node.argsToStr();
+			depth += 1;
 		}
 		return s;
 	};
@@ -72,6 +74,45 @@ unorderedEq := procedure(s1, s2) {
 		if (x notin s2) { return false; }
 	}
 	return true;
+};
+
+// @Note: Both t1 and t2 are expected to be sets of baseTypes (aka strings)
+addTypes := procedure(t1, t2) {
+	res := t1 + t2;
+	if ("Any" in res) { return {"Any"}; }
+	else              { return res;     }
+};
+
+// Takes a file-/folder-path as input and returns a list of all the folders/files in the path
+splitPath := procedure(path) {
+	res := [];
+	s   := "";
+	for (c in path) {
+		if (c == "/" || c == "\\") {
+			if (s != "") {
+				res += [s];
+				s   := "";
+			}
+		} else {
+			s += c;
+		}
+	}
+	if (s != "") { res += [s]; }
+	// print("splitPath(" + path + ") = " + res);
+	return res;
+};
+
+// Takes a list of path-parts (as returned by splitPath) as input and returns the canonical path as a string
+joinPaths := procedure(paths) {
+	res := [];
+	for (i in {1..#paths}) {
+		if (paths[i] == "..") {
+			if (#res > 0) { res := res[1..#res-2]; }
+		}
+		else if (paths[i] != ".") { res += [paths[i]]; }
+	}
+	// print("joinPath(" + paths + ") = " + join(res, "/"));
+	return join(res, "/");
 };
 
 class global() {
@@ -238,12 +279,13 @@ class token(id, start, end, data := om) {
 	toStr := displayStr;
 }
 
-class astNode(id, start, end, data := om, args := [], type := exprType("None")) {
+class astNode(id, start, end, data := om, args := [], types := {"None"}) {
 	id        := id;
 	start     := start;
 	end       := end;
 	data      := data;
 	args      := args;
+	types     := types;
 	className := procedure() { return "astNode"; };
 	is        := procedure(x) { return id == x; };
 	equals    := procedure(x) { return x != om && id == x.id && start == x.start && end == x.end && data == x.data; }; // Not checking children for equality for performance reasons
@@ -267,36 +309,6 @@ class astNode(id, start, end, data := om, args := [], type := exprType("None")) 
 	}; // for compatibility with token-class
 	toStr := displayStr;
 }
-
-// @TODO This doesn't work yet
-// class exprType(ids := [], tParams := [], sParams := []) {
-// 	ids        := ids;
-// 	tParams    := tParams;
-// 	sParams    := sParams;
-// 	className  := procedure() { return "exprType"; }
-// 	equals     := procedure(x) { return x != om && unorderedEq(ids, x.ids) && unorderedEq(tParams, x.tParams) && unorderedEq(sParams, x.sParams) };
-// 	gt         := procedure(other) { // Checks if this type is a superset of the provided type
-// 		for
-// 	}
-// 	lt         := procedure(other) { // Checks if this type is a subset of the provided type
-
-// 	};
-// 	add := procedure(other) {
-
-// 	}
-
-// 	displayStr := procedure() {
-// 		if (id == "Set" || id == "List") {
-// 			return id + "(" + join([x.displayStr() : x in t], ", ") + ")";
-// 		} else if (id == "Proc") {
-// 			return id + "(" + "[" + join([x.displayStr() : x in t], ", ") + "], " + s.displayStr() + ")";
-// 		} else {
-// 			return id;
-// 		}
-// 	}
-// 	toStr := displayStr;
-// }
-
 
 class inst(id, start, end, data := om) {
 	id        := id;
@@ -568,16 +580,16 @@ class parser(file_path, toks) {
 		}
 
 		stmts := [];
-		type  := exprType("None")
+		types := om;
 		while (idx <= len) {
 			stmt  := parseStmt({["Class", [] |=> parseClass()]});
 			stmts += [stmt];
-			if (stmt.is("Ret")) { type.add(stmt.exprType); }
+			if (stmt.is("Ret") && types == om) { types := stmt.types; }
 		}
-		if (type.is("None")) { type.id := "Om"; }
+		if (types == om) { types := {"Om"}; }
 
 		global.pop();
-		return astNode("Block", toks[1].start, toks[-1].end, om, stmts, stmtsType, type);
+		return astNode("Block", toks[1].start, toks[-1].end, om, stmts, types);
 	};
 
 	parseStmt := procedure(additionalCases := {}, invalidCases := {}) {
@@ -601,7 +613,7 @@ class parser(file_path, toks) {
 			case t.is("Backtrack"): res := parseBacktrack();
 			case t.is("Ret"):
 				expr := parseExprWithEndTok(chop_tok(), "SemiColon");
-				res := astNode("Ret", t.start, toks[idx-1].end, om, [expr], expr.exprType);
+				res := astNode("Ret", t.start, toks[idx-1].end, om, [expr], expr.types);
 			case t.isPrimary(): res := parseExprOrAssignWithEndTok(t, "SemiColon");
 			default: compileErr(file, t.start, t.end, "Invalid Token starting Statement: " + t.displayStr());
 		}
@@ -697,10 +709,10 @@ class parser(file_path, toks) {
 					if (!cur_tok().is("RBrack")) { x := parseExprWithEndTok(chop_tok(), ["RBrack"]); }
 					else { chop_tok(); }
 
-					if (stmt == om) { stmt := astNode("Range", t.start, toks[idx-1].end, om, [t,       x], exprType("List", {exprType("Int")})); }
-					else            { stmt := astNode("Range", t.start, toks[idx-1].end, om, [t, stmt, x], exprType("List", {exprType("Int")})); }
+					if (stmt == om) { stmt := astNode("Range", t.start, toks[idx-1].end, om, [t,       x], {"List"}); }
+					else            { stmt := astNode("Range", t.start, toks[idx-1].end, om, [t, stmt, x], {"List"}); }
 				}
-				node := astNode("Index", t.start, toks[idx-1].end, om, [t, stmt], exprType({"List", }));
+				node := astNode("Index", t.start, toks[idx-1].end, om, [t, stmt], {"List"}); // @TODO: Update type here
 				res := parseExprWithEndTok(node, endTokTypes);
 			case nt.is("LParan"):
 				argList := parseCommaSeparated("RParan");
@@ -1192,15 +1204,46 @@ class parser(file_path, toks) {
 }
 
 
-// @Note the provided ast is mutated directly
-addImports := procedure(ast) {
-	// I'm not entirely sure if this will work like this, as I don't know if SetlX passes objects by value or reference
-	traverse := procedure(node) {
-		if (node.is("Load")) { stop("Loading imports is not implemented yet"); }
-		else { node.args := [ traverse(arg) : arg in node.args ]; }
+// @Note: Returns an array with the modified ast and a list of filenames that were imported
+addImports := procedure(file, ast, importedFiles := []) {
+	global.push("addImports", [["file", file], ["ast", ast.displayStr()], ["importedFiles", importedFiles]]);
+	dirParts      := splitPath(file)[1..-2];
+	importedFiles := [file] + importedFiles;
+
+	traverse := closure(node, outerScope) {
+		if (node.is("Assign") && node.args[1].is("Iden") && node.args[1].data == "load") {
+			compileErr(file, node.start, "load := ...", "Overwriting the builtin function 'load' is not supported.");
+		}
+		else if (node.is("Call") && node.data.is("Iden") && node.data.data == "load") {
+			if (!outerScope) {
+				compileErr(file, node.start, node.end, "load(...) can only be called from the outermost file scope.");
+			}
+			params := node.args;
+			if (#params != 1) {
+				compileErr(file, node.start, node.end, "load(file_name) requires exactly one input parameter, which is required to be a string literal.");
+			}
+			file_name := node.args[1];
+			if (!file_name.is("Str")) {
+				compileErr(file, node.start, node.end, "The filename provided to load(...) must be a string literal. Dynamic imports are not supported.");
+			}
+			file_name := joinPaths(dirParts + splitPath(file_name.data));
+			// Prevent duplicate imports
+			if (file_name notin importedFiles) {
+				content := join(readFile(file_name), "\n");
+				toks    := lexer(file_name, content).lex();
+				new_ast := parser(file_name, toks).parse();
+				new_ast := addImports(file_name, new_ast, importedFiles);
+				importedFiles += [file_name];
+			}
+		}
+		else { node.args := [ traverse(arg, false) : arg in node.args ]; }
+		return node;
 	};
-	traverse(ast);
-	return ast;
+
+	nodes := [traverse(node, true) : node in ast.args];
+	ast   := astNode("Block", ast.start, ast.end, om, nodes);
+	global.pop();
+	return [ast, importedFiles];
 };
 
 // @TODO
@@ -1215,15 +1258,15 @@ irToLLVM := procedure(ir) {
 
 compile := procedure(file) {
 	global.push("compile", [["file", file]]);
-	str := join(readFile(file), "\n");
+	str  := join(readFile(file), "\n");
 	toks := lexer(file, str).lex();
+	ast  := parser(file, toks).parse();
+	ast  := addImports(file, ast)[1];
 
-	ast := parser(file, toks).parse();
 	print("AST:"); // @Cleanup
 	print(ast.dumpToStr(global.debug));
 	global.pop();
 
-	ast  := addImports(ast);
 	ir   := codegen(ast);
 	llvm := irToLLVM(ir);
 	// writeFile("out.ll", llvm); // @TODO: Provide parameter for name of output file
