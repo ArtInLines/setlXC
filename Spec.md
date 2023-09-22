@@ -42,7 +42,7 @@ The AST is defined as follows:
 typedef enum nodeType { // Represented as strings in SetlX
 	Block,    // Args: List of Statements in block
 	Ret,      // Args: Expr to return
-	Assign,   // Data: Iden/Index/Property; Args: Expr for value
+	Assign,   // Args: Iden/Index/Property, Expr for value
 	BinOp,    // Data: operator; Args: left Expr, right Expr
 	UnaryOp,  // Data: operaor; Args: operand
 	Range,    // Args: Expr to range on, first & second range parameter (each could be om) @Note: Both can't be om, as SetlX doesn't accept that @Note: If the parameter is om, it can be subsituted without semantic change: for the first with 1, for the second with #(expr)
@@ -76,16 +76,16 @@ typedef struct baseType { // See chapter 4 for an overview of these base types
 	List,
 	Set,
 	Proc,
-	Any,
-	None;
+	Any;
 } baseType;
 
 typedef struct astNode {
 	nodeType  id;
 	loc       start;
 	loc       end;
-	astNode  *data;   // Single data point, usually an Identifier/Index/Property - can be om
-	astNode   args[]; // List of arguments to the astNode. Depends on the exprType of the node (see nodeType definition above)
+	baseType  types{}; // Set of types, that this node could have
+	astNode  *data;    // Single data point, usually an Identifier/Index/Property - can be om
+	astNode   args[];  // List of arguments to the astNode. Depends on the exprType of the node (see nodeType definition above)
 } astNode;
 ```
 
