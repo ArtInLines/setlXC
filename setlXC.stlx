@@ -38,13 +38,13 @@ class stackNode(n, args) {
 	// Get the node at level x
 	get := procedure(x := 1) {
 		if (x <= 1) { return this; }
-		else if (this.children == []) { throw("Error in getting StackNode"); }
+		else if (this.children == []) { stop("Error in getting StackNode"); }
 		else { return this.children[#this.children].get(x - 1); }
 	};
 	// Add a new node to level x
 	add := procedure(n, args := {}, x := 0) {
 		if (x <= 0) { this.children += [stackNode(n, args)]; }
-		else if (this.children == []) { throw("Error in adding to stackNode"); }
+		else if (this.children == []) { stop("Error in adding to stackNode"); }
 		else { this.children[#children] := this.children[#children].add(n, args, x - 1); }
 		return this;
 	};
@@ -118,19 +118,29 @@ joinPaths := procedure(paths) {
 class global() {
 	static {
 		debug := false;
-		p := procedure(s) {
+		p     := procedure(s) {
 			if (global.debug) { print(s); }
 		};
 
-		stack := om;
+		stack    := om;
 		stacklen := 0;
-		push := procedure(name, args := []) {
-			if (global.stack == om) { global.stack := stackNode(name, args); }
-			else { global.stack := global.stack.add(name, args, global.stacklen - 1); }
-			global.stacklen += 1;
+		push     := procedure(name, args := []) {
+			if (global.debug) {
+				if (global.stack == om) { global.stack := stackNode(name, args); }
+				else { global.stack := global.stack.add(name, args, global.stacklen - 1); }
+				global.stacklen += 1;
+			}
 		};
 		pop := procedure() {
-			global.stacklen -= 1;
+			if (global.debug) {
+				global.stacklen -= 1;
+			}
+		};
+
+		labelCounter := 0;
+		getLabel     := procedure(s := "L") {
+			global.labelCounter += 1;
+			return s + global.labelCounter;
 		};
 
 		keywordsToToks := {
@@ -246,7 +256,8 @@ class loc(file, row, col) {
 
 	static {
 		toStr := procedure(start, end) {
-			if (start.file != end.file) { throw("loc.toStr(start, end) doesn't work if `start` and `end` are locations in different files"); }
+			global.push("loc.toStr", [["start", start.locStr()], ["end", end.locStr()]]);
+			if (start.file != end.file) { stop("loc.toStr(start, end) doesn't work if `start` and `end` are locations in different files"); }
 			lines := readFile(start.file, [start.row..end.row]);
 			if (start.row == end.row) {
 				lines[1] := lines[1][start.col..end.col];
@@ -254,6 +265,7 @@ class loc(file, row, col) {
 				lines[1] := lines[1][start.col..];
 				lines[-1] := lines[-1][..end.col];
 			}
+			global.pop();
 			return join(lines, "\n");
 		};
 	}
@@ -270,11 +282,15 @@ class token(id, start, end, data := om) {
 	isPrimary  := procedure() { return id in {"Iden", "Str", "Int", "Float", "LParan", "LBrack", "LCurly"}; };
 	equals     := procedure(other) { return other != om && id == other.id && start == other.start && end == other.end && data == other.data; };
 	displayStr := procedure() {
+		global.push("token.displayStr", []);
+		res := om;
 		if (data == om) {
-			return id;
+			res := id;
 		} else {
-			return id + "('" + data + "')";
+			res := id + "('" + data + "')";
 		}
+		global.pop();
+		return res;
 	};
 	toStr := displayStr;
 }
@@ -290,39 +306,52 @@ class astNode(id, start, end, data := om, args := [], types := {"None"}) {
 	is        := procedure(x) { return id == x; };
 	equals    := procedure(x) { return x != om && id == x.id && start == x.start && end == x.end && data == x.data; }; // Not checking children for equality for performance reasons
 	dataToStr := procedure() {
+		global.push("astNode.dataToStr", []);
 		dat := data;
 		if (data != om && isObject(data) && data.className() == "astNode") { dat := dat.displayStr(); }
+		global.pop();
 		return dat;
 	};
 	dumpToStr := procedure(show_loc := false, indent_level := 0, single_indent := "  ") {
+		global.push("astNode.dumpToStr", [["show_loc", show_loc], ["indent_level", indent_level], ["single_indent", single_indent]]);
 		s := single_indent * indent_level + "@" + id;
 		if (data != om) { s += "('" + dataToStr() + "')"; }
 		if (show_loc) { s += " [" + start.locStr() + " - " + end.locStr() + "]"; }
 		for (c in args) { s += "\n" + c.dumpToStr(show_loc, indent_level + 1, single_indent); }
+		global.pop();
 		return s;
 	};
 	displayStr := procedure() {
+		global.push("astNode.displayStr", []);
+		res := om;
 		if (data ==  om) {
-			return "@" + id;
+			res := "@" + id;
+		} else {
+			res := "@" + id + "(" + dataToStr() + ")";
 		}
-		return "@" + id + "(" + dataToStr() + ")";
+		global.pop();
+		return res;
 	}; // for compatibility with token-class
 	toStr := displayStr;
 }
 
-class inst(id, start, end, data := om) {
+class inst(id, data, start, end) {
 	id        := id;
 	data      := data;
 	start     := start;
 	end       := end;
-	className := procedure() { return "astNode"; };
+	className := procedure() { return "inst"; };
 	is        := procedure(x) { return id == x; };
 	displayStr := procedure() {
+		global.push("inst.displayStr", [["id", id]]);
+		res := om;
 		if (data == om) {
-			return id;
+			res := id;
 		} else {
-			return id + "('" + data + "')";
+			res := id + "('" + data + "')";
 		}
+		global.pop();
+		return res;
 	};
 	toStr := displayStr;
 }
@@ -334,14 +363,35 @@ class proc(name, args, vars, code, start, end) {
 	code      := code;
 	start     := start;
 	end       := end;
-	className := procedure() { return "astNode"; };
-	is        := procedure(x) { return id == x; };
+	className := procedure() { return "proc"; };
 	displayStr := procedure() {
-		if (data == om) {
-			return id;
-		} else {
-			return id + "('" + data + "')";
-		}
+		global.push("proc.displayStr", []);
+		s := name;
+		if (#args > 0) { s += " (\n\t" + join([arg.displayStr() : arg in args], "\n\t") + "\n)"; }
+		else { s += " ()"; }
+		if (#code > 0) { s += " {\n\t" + join([inst.displayStr() : inst in code], "\n\t") + "\n}"; }
+		else { s += " {}"; }
+		global.pop();
+		return s;
+	};
+	toStr := displayStr;
+}
+
+class intermediateRep(procs := [], vars := [], code := []) {
+	procs := procs;
+	vars  := vars;
+	code  := code;
+	className := procedure() { return "intermediateRep"; };
+	displayStr := procedure() {
+		global.push("intermediateRep.displayStr", []);
+		s := "Procedures:";
+		for (proc in procs) { s += "\n" + proc.displayStr(); }
+		s += "\nVariables:";
+		for (var  in vars)  { s += "\n" + var.displayStr(); }
+		s += "\nCode:";
+		for (c    in code)  { s += "\n" + c.displayStr(); }
+		global.pop();
+		return s;
 	};
 	toStr := displayStr;
 }
@@ -356,14 +406,18 @@ compileErr := procedure(file, start, endOrLocStr, msg) {
 };
 
 startsWith := procedure(str, prefix, strOffset := 0) {
+	global.push("startsWith", [["str", str], ["prefix", prefix], ["strOffset", strOffset]]);
 	if (#str - strOffset < #prefix) {
+		global.pop();
 		return false;
 	}
 	for (i in {1..#prefix}) {
 		if (str[strOffset + i] != prefix[i]) {
+			global.pop();
 			return false;
 		}
 	}
+	global.pop();
 	return true;
 };
 
@@ -394,7 +448,7 @@ class lexer(file_path, str) {
 
 	chop_lc := procedure() {
 		// Line Comment
-		if(str[cur..cur+1] != "//") { throw("chop_lc should only be called when str[cur..cur+1] == '//' is true"); }
+		if(str[cur..cur+1] != "//") { stop("chop_lc should only be called when str[cur..cur+1] == '//' is true"); }
 		this.cur += 2;
 		while (cur <= len && !is_newline(str[cur])) {
 			chop_char();
@@ -405,7 +459,7 @@ class lexer(file_path, str) {
 		// Block Comment
 		start_cur := cur;
 		start := loc(file, lc,start_cur - bol);
-		if(str[cur..cur+1] != "/*") { throw("chop_bc should only be called when str[cur..cur+1] == '/*' is true"); }
+		if(str[cur..cur+1] != "/*") { stop("chop_bc should only be called when str[cur..cur+1] == '/*' is true"); }
 		this.cur += 2;
 		while (cur <= len) {
 			// Return from function, when block comment is over
@@ -1036,7 +1090,7 @@ class parser(file_path, toks) {
 			x := om;
 			if (parsingF == "exprOrAssign") { x := parseExprOrAssignWithEndTok(t, ["Comma", endTokType]); }
 			else if (parsingF == "collectionOrPrimary") { x := parseCollectionOrPrimary(t, ["Comma", endTokType]); }
-			else { throw("Unexpected input for parseCommaSeparated. parsingF is not expected to be '" + parsingF + "'"); }
+			else { stop("Unexpected input for parseCommaSeparated. parsingF is not expected to be '" + parsingF + "'"); }
 			res += [x];
 		} while (!toks[idx-1].is(endTokType));
 
@@ -1207,6 +1261,8 @@ class parser(file_path, toks) {
 // @Note: Returns an array with the modified ast and a list of filenames that were imported
 addImports := procedure(file, ast, importedFiles := []) {
 	global.push("addImports", [["file", file], ["ast", ast.displayStr()], ["importedFiles", importedFiles]]);
+	if (!ast.is("Block")) { stop("Start Assumption of addImports broken. Expects ast to be a Block, but received a " + ast.id + " instead."); }
+
 	dirParts      := splitPath(file)[1..-2];
 	importedFiles := [file] + importedFiles;
 
@@ -1252,9 +1308,188 @@ addImports := procedure(file, ast, importedFiles := []) {
 	return [ast, importedFiles];
 };
 
-// @TODO
-codegen := procedure(ast) {
-	return ast;
+
+codegenExpr := procedure(node) {
+	global.push("codegenExpr", [["ast", node.displayStr()]]);
+	insts := [];
+	// global.p("codegenExpr - node: " + node.id);
+	match(node.id) {
+		case "BinOp":
+			insts += codegenExpr(node.args[1]);
+			insts += codegenExpr(node.args[2]);
+			insts += [inst(node.data, om, node.start, node.end)];
+		case "UnaryOp":
+			insts += codegenExpr(node.args[1]);
+			insts += [inst(node.data, om, node.start, node.end)];
+		case "Call":
+			for (arg in node.args) {
+				insts += codegenExpr(arg);
+			}
+			insts += [inst("Int", #node.args, node.start, node.end)];
+			insts += codegenExpr(node.data);
+			insts += [inst("Call", om, node.start, node.end)];
+		case "Property":
+			insts += codegenExpr(node.data);
+			insts += codegenExpr(node.args[1]);
+		case "Index":
+			insts += codegenExpr(node.args[1]);
+			insts += codegenExpr(node.args[2]);
+			insts += [inst("Index", om, node.start, node.end)];
+		case "Range":
+			list  := codegenExpr(node.args[1]);
+			insts += list;
+			if (node.args[2] == om) {
+				insts += [inst("Int", 1, node.args[1].end, node.args[1].end)];
+			} else {
+				insts += codegenExpr(node.args[2]);
+			}
+			if (node.args[3] == om) {
+				insts += list;
+				insts += [inst("Len", om, node.end, node.end)];
+			} else {
+				insts += codegenExpr(node.args[3]);
+			}
+			insts += [inst("Range", om, node.start, node.end)];
+		case "List":
+			for (expr in node.args) {
+				insts += codegenExpr(expr);
+			}
+			insts += [inst("Int", #node.args, node.start, node.end)];
+			insts += [inst(node.id, om, node.start, node.end)];
+		case "Set":
+			for (expr in node.args) {
+				insts += codegenExpr(expr);
+			}
+			insts += [inst("Int", #node.args, node.start, node.end)];
+			insts += [inst(node.id, om, node.start, node.end)];
+		case "Str":
+			insts += [inst(node.id, node.data, node.start, node.end)];
+		case "Float":
+			insts += [inst(node.id, node.data, node.start, node.end)];
+		case "Int":
+			insts += [inst(node.id, node.data, node.start, node.end)];
+		case "Iden":
+			insts += [inst("Var", node.data, node.start, node.end)];
+		default:
+			stop("Encountered unexpected node in codegenExpr: " + node.id);
+	}
+	global.pop();
+	return insts;
+};
+
+// @Note: Returns a 2D array of instructions. Each instruction is a list containing a 'Var' and optionally also an 'Assign' instruction (including all the instructions for the assignment).
+// @Note: If 'flatList' is true, the return value is a flat 1D list of the same instructions instead
+codegenArgList := procedure(ast, flatList := false) {
+	global.push("codegenArgList", [["ast", ast.displayStr()], ["flatList", flatList]]);
+	if (!ast.is("ArgList")) { stop("Start Assumption of codegenArgList broken. Expects ast to be a ArgList, but received a " + ast.id + " instead."); }
+
+	res := [];
+	for (node in ast.args) {
+		insts := [];
+		match(node.id) {
+			case "Iden"  : insts += codegenExpr(node);
+			case "Assign": insts += codegenAssign(node);
+			default      : stop("Encountered unexpected node in codegenArgList: " + node.id);
+		}
+		if (flatList) { res += insts;   }
+		else          { res += [insts]; }
+	}
+
+	global.pop();
+	return res;
+};
+
+codegenAssign := procedure(node) {
+	global.push("codegenAssign", [["node", node.displayStr()]]);
+	if (!node.is("Assign")) { stop("Start Assumption of codegenAssign broken. Expects node to be a Assign, but received a " + node.id + " instead."); }
+
+	insts := [];
+	insts += codegenExpr(node.args[2]);
+	insts += codegenExpr(node.args[1]);
+	insts += [inst("Assign", om, node.start, node.end)];
+
+	global.pop();
+	return insts;
+};
+
+// Generate an intermediateRep object for a block of code
+codegenBlock := procedure(file, ast) {
+	global.push("codegenBlock", [["file", file], ["ast", ast.displayStr()]]);
+	if (!ast.is("Block")) { stop("Start Assumption of codegenBlock broken. Expects ast to be a Block, but received a " + ast.id + " instead."); }
+
+	ir             := intermediateRep();
+	vars           := []; // @TODO
+	currentVarName := om;
+
+	for (node in ast.args) {
+		global.p("codegenBlock - node: " + node.id);
+		match(node.id) {
+			case "Block":
+				block    := codegenBlock(file, node);
+				ir.code  += block.code;
+				ir.procs += block.procs;
+			case "Ret":
+				ir.code += codegenExpr(node.args[1]);
+				ir.code += [inst("Ret", om, node.start, node.end)];
+			case "Assign":
+				ir.code += codegenAssign(node);
+			case "ArgList":
+				ir.code += codegenArgList(node);
+			case "Proc":
+				compileErr(file, node.start, node.end, "Codegen for Procedures is not yet implemented");
+				// @TODO:
+				// ir.code := codegenBlock(file, node.args[2]);
+				// p := proc(currentVarName)
+				// ir.procs += [p];
+				// currentVarName = om;
+			case "If":
+				label     := global.getLabel();
+				body      := codegenBlock(file, node.args[2]);
+				body.code += [inst("Label", label, node.end, node.end)];
+				ir.code   += codegenExpr(node.args[1]);
+				ir.code   += [inst("CondJmp", label, node.start, node.end)];
+				ir.code   += body.code;
+				ir.procs  += body.procs;
+			case "Else":
+				cond := om;
+				body := om;
+				if (#node.args == 2) {
+					[cond, body] := node.args;
+				} else {
+					body := node.args[1];
+				}
+				body := codegenBlock(file, body);
+				if (cond != om) {
+					label     := global.getLabel();
+					body.code += [inst("Label", label, node.end, node.end)];
+					ir.code   += codegenExpr(cond);
+					ir.code   += [inst("CondJmp", label, node.start, node.end)];
+				}
+				ir.code  += body.code;
+				ir.procs += body.procs;
+			case "Class":
+				compileErr(file, node.start, node.end, "Codegen for Classes is not yet implemented");
+			case "Static":
+				compileErr(file, node.start, node.end, "Codegen for Static blocks is not yet implemented");
+			case "For":
+				compileErr(file, node.start, node.end, "Codegen for For-Loops is not yet implemented");
+			case "While":
+				compileErr(file, node.start, node.end, "Codegen for While-Loops is not yet implemented");
+			case "DoWhile":
+				compileErr(file, node.start, node.end, "Codegen for DoWhile-Loops is not yet implemented");
+			default:
+				ir.code += codegenExpr(node);
+		}
+	}
+
+	// varInits := [];
+	// for (var in vars) {
+	// 	varInits += [inst("Om", om, 0, 0), inst("Var", var, 0, 0), inst("Assign", om, 0, 0)];
+	// }
+	// ir.code := varInits + ir.code;
+
+	global.pop();
+	return ir;
 };
 
 // @TODO
@@ -1271,9 +1506,11 @@ compile := procedure(file) {
 
 	print("AST:"); // @Cleanup
 	print(ast.dumpToStr(global.debug));
-	global.pop();
 
-	ir   := codegen(ast);
+	ir   := codegenBlock(file, ast);
+	print("\nIR:"); // @Cleanup
+	print(ir.displayStr());
+
 	llvm := irToLLVM(ir);
 	// writeFile("out.ll", llvm); // @TODO: Provide parameter for name of output file
 	global.pop();

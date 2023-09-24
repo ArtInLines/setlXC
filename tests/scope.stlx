@@ -1,0 +1,5 @@
+f := procedure() {
+	hello := "Hello";
+};
+f();
+print(hello); // Should print om

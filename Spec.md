@@ -45,6 +45,7 @@ typedef enum nodeType { // Represented as strings in SetlX
 	Assign,   // Args: Iden/Index/Property, Expr for value
 	BinOp,    // Data: operator; Args: left Expr, right Expr
 	UnaryOp,  // Data: operaor; Args: operand
+	In,       // Data: String; Args: collection @TODO not implemented in code yet
 	Range,    // Args: Expr to range on, first & second range parameter (each could be om) @Note: Both can't be om, as SetlX doesn't accept that @Note: If the parameter is om, it can be subsituted without semantic change: for the first with 1, for the second with #(expr)
 	Index,    // Args: Expr to index, parameter for indexing
 	Call,     // Data: Iden/Index/Property to call; Args: List of arguments
@@ -63,7 +64,8 @@ typedef enum nodeType { // Represented as strings in SetlX
 	Str,      // Data: String
 	Int,      // Data: String of Int
 	Float,    // Data: String of Float
-	Iden;	  // Data: String
+	Iden,	  // Data: String
+	Om;       // Nothing @TODO not implemented in code yet
 } nodeType;
 
 typedef struct baseType { // See chapter 4 for an overview of these base types
@@ -148,23 +150,25 @@ typedef struct instType { // Represented as strings in SetlX
 	Ret,        // [...] -> []
 	Range,      // [coll1, lo, hi] -> [coll2]
 	Index,      // [coll, idx] -> [val]
-	Call,       // [...args, arglen, proc] -> [val]
+	Property,   // [val, str] -> [val]
+	Call,       // [...args, arglen, var] -> [val]
 	Label,      // [] -> [str] | Labels for jumps
-	CondJmp,    // [] Jumps to given label if last expression computes "false"
-	Jmp,        // [label] -> [] | Unconditional Jump to given label
-	Set,        // [] -> [coll]
-	List,       // [] -> [coll]
+	CondJmp,    // [] -> [] | Jumps to label (given in instData) if last expression computes "false"
+	Jmp,        // [] -> [] | Unconditional Jump to label (given in instData)
+	Set,        // [...args, arglen] -> [set]
+	List,       // [...args, arglen] -> [list]
 	Str,        // [] -> [str]
 	Int,        // [] -> [num]
 	Float,      // [] -> [num]
+	Om,         // [] -> [om]
 	Proc,		// [] -> [proc]
-	Var;        // [] -> [var]
+	Var;        // [] -> [str]
+	Block;      // [] -> []
 } instType;
 
 typedef union instData {
+	inst[],
 	String,
-	List,
-	Set,
 	Int,
 	Float
 } instData;
@@ -176,20 +180,19 @@ typedef struct inst {
 	loc      end;
 } inst;
 
-typedef struct proc {
-	string   name; // Potentially useful for debugging
-	inst[][] args; // List of arguments, each of which is a list of 'Var' and 'Assignment' insts
-	string[] vars; // Variables (aside from arguments) that are used in the function
-	inst[]   code; // Actual operations in the procedure
+typedef struct procedure {
+	string   name;     // Potentially useful for debugging
+	inst     args[][]; // List of arguments, each of which is a list of 'Var' and 'Assign' insts
+	string   vars[];   // Variables (aside from arguments) that are used in the function
+	inst     code[];   // Actual operations in the procedure
 	loc      start;
 	loc      end;
 } proc;
 
-typedef struct ir {
-	proc[]   procs;
-	string[] vars; // Necessary to initialize to om
-	inst[]   code;
-} ir;
+typedef struct intermediateRep {
+	proc   procs[];
+	inst   code[];
+} intermediateRep;
 ```
 
 ## 5. Intermediate Representation
