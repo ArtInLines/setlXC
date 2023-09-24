@@ -4,7 +4,7 @@ SetlXC is a Compiler for the Programming Language [SetlX](https://randoom.org/So
 
 ## Disclaimer
 
-**This Project is a Work-In-Progress. As of now, only Tokenization and large parts of parsing are actually implemented.**
+**This Project is a Work-In-Progress. Much is still to be done, including code generation.**
 
 ## Bootstrapping the Compiler
 
