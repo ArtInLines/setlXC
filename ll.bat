@@ -2,7 +2,7 @@
 
 @echo off
 
-clang test.ll
+clang %1.ll
 a.exe
 
 @echo on

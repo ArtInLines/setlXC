@@ -2,6 +2,4 @@
 
 @echo off
 
-clang -S -emit-llvm test.c
-
-@echo on
+clang -S -emit-llvm %1.c
