@@ -640,6 +640,8 @@ class parser(file_path, toks) {
 			case t.is("Int"): res := astNode("Int", t.start, t.end, t.data);
 			case t.is("Float"): res := astNode("Float", t.start, t.end, t.data);
 			case t.is("Iden"): res := astNode("Iden", t.start, t.end, t.data);
+			case t.is("True"): res := astNode("Bool", t.start, t.end, true);
+			case t.is("False"): res := astNode("Bool", t.start, t.end, false);
 			default:
 				if (!t.isPrimary()) {
 					printErr("parsePrimary should only fail if the token isn't a primary. The token " + t.toStr() + " is apparently a primary though.");

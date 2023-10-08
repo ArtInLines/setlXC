@@ -121,6 +121,8 @@ codegenExpr := procedure(file, node) {
 			insts += [inst(node.id, node.data, node.start, node.end)];
 		case "Int":
 			insts += [inst(node.id, node.data, node.start, node.end)];
+		case "Bool":
+			insts += [inst(node.id, node.data, node.start, node.end)];
 		case "Iden":
 			insts += [inst("Var", node.data, node.start, node.end)];
 		default:
@@ -196,7 +198,7 @@ codegenBlock := procedure(file, ast) {
 				// ir.procs += [p];
 				// currentVarName = om;
 			case "If":
-				label     := toCVars.labelCounter.get();
+				label     := global.labelCounter.get();
 				body      := codegenBlock(file, node.args[2]);
 				body.code += [inst("Label", label, node.end, node.end)];
 				ir.code   += codegenExpr(file, node.args[1]);
@@ -213,7 +215,7 @@ codegenBlock := procedure(file, ast) {
 				}
 				body := codegenBlock(file, body);
 				if (cond != om) {
-					label     := toCVars.labelCounter.get();
+					label     := global.labelCounter.get();
 					body.code += [inst("Label", label, node.end, node.end)];
 					ir.code   += codegenExpr(file, cond);
 					ir.code   += [inst("CondJmp", label, node.start, node.end)];

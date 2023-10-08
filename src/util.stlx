@@ -74,6 +74,8 @@ class global() {
 			}
 		};
 
+		labelCounter := counter("L");
+
 		keywordsToToks := {
 			["class", "Class"],
 			["static", "Static"],
@@ -88,7 +90,9 @@ class global() {
 			["else", "Else"],
 			["for", "For"],
 			["while", "While"],
-			["do", "Do"]
+			["do", "Do"],
+			["true", "True"],
+			["false", "False"]
 		};
 
 		symbolsToToks := [

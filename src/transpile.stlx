@@ -3,7 +3,6 @@ load("ir.stlx");
 
 // @Note: These should all be global variables, but adding these to a class' static section, uses too much memory for setlX' stack apparently
 class irToCVars() {
-	labelCounter := counter("L");
 	structPrefix := "__struct_";
 	valStruct    := structPrefix + "Value";
 	varPrefix    := "__stlx_";
@@ -34,6 +33,10 @@ makeValueStruct := procedure(file, instr, toCVars, cliteral := true) {
 			val += "{.type = " + typeEnum + "Int" + ", .data = {.i = " + instr.data + "}}";
 		case "Float":
 			val += "{.type = " + typeEnum + "Float" + ", .data = {.f = " + instr.data + "}}";
+		case "Bool":
+			x := 0;
+			if (instr.data) { x := 1; }
+			val += "{.type = " + typeEnum + "Int" + ", .data = {.i = " + x + "}}";
 		case "Om":
 			val += "{0}";
 		default:
@@ -135,9 +138,12 @@ irCodeToC := procedure(file, code, varCounter, toCVars) {
 			case "NativeCall":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'NativeCall' to C code is not yet implemented");
 			case "Label":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Label' to C code is not yet implemented");
+				res += instr.data + ":\n";
 			case "CondJmp":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'CondJmp' to C code is not yet implemented");
+				cond := st.pop();
+				[val, var] := makeValueStruct(file, cond, toCVars);
+				res += var;
+				res += "if (!" + val + ".data.i" + ") goto " + instr.data + ";\n";
 			case "Jmp":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Jmp' to C code is not yet implemented");
 			case "Set":
