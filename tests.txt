@@ -1,0 +1,91 @@
+# tests
+## assign
+Hello World
+## collOps
+94
+1484
+[1, 3, 5, 2, 7, 2]
+## hello
+Hello World
+## ifelse
+Hello
+## indexing
+true
+## list-literal
+[1, 2, 3]
+## mutual-rec
+a
+b
+a
+b
+a
+b
+a
+b
+a
+b
+## scope
+om
+## simpleProc
+Hello!
+## strConcat
+Hello World
+## boolOps
+true
+false
+false
+true
+true
+true
+true
+## compOps
+false
+true
+true
+true
+false
+true
+true
+## if
+Hello from if
+Hello
+## import
+Hello!
+## length
+5
+3
+3
+7
+## maths
+33
+33/2
+-86.46338235294117
+## ranges
+[[421, 1, 5]]
+[[5, 421]]
+[[1, 5, 12]]
+[[5, 421, 1, 5, 12]]
+[[1, 5, 12]]
+## set-literal
+{1, 2, 3}
+## squareProc
+9
+16
+## unaryOps
+4
+216
+-216
+-7/216
+251/36
+-251/18
+
+# failTests
+## dynamic-import
+## fulll-range
+## func-scope-import
+## import-overwrite
+## literal-indexing
+## literal-ranges
+## missing-file-import
+## self-import
+## zero-index
