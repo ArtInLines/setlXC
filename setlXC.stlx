@@ -43,10 +43,36 @@ class stackNode(n, args) {
 	};
 	// Add a new node to level x
 	add := procedure(n, args := {}, x := 0) {
-		if (x <= 0) { this.children += [stackNode(n, args)]; }
-		else if (this.children == []) { stop("Error in adding to stackNode"); }
+		if (x <= 0) {
+			if (this.children == []) { this.children := [stackNode(n, args)]; }
+			else                     { this.children += [stackNode(n, args)]; }
+		} else if (this.children == []) { stop("Error in adding to stackNode"); }
 		else { this.children[#children] := this.children[#children].add(n, args, x - 1); }
 		return this;
+	};
+}
+
+// Implementation of an actual stack with push, pop and peek operations
+// Used in transforming IR to LLVM code
+// @Note: The reason behind using length and capacity variables, is an assumed performance increase - this was not tested though
+class stack() {
+	this.arr  := [];
+	this.size := 0;
+	this.cap  := 0;
+	len       := procedure()  { return #this.arr; };
+	peek      := procedure()  { return this.arr[this.size]; };
+	push      := procedure(x) {
+		this.size += 1;
+		if (this.size <= this.cap) { this.arr[this.size] := x; }
+		else {
+			this.arr += [x];
+			this.cap += 1;
+		}
+	};
+	pop       := procedure()  {
+		if (this.size == 0) { return om; }
+		this.size -= 1;
+		return this.arr[this.size + 1];
 	};
 }
 
@@ -115,6 +141,19 @@ joinPaths := procedure(paths) {
 	return join(res, "/");
 };
 
+class counter(s := "") {
+	s   := s;
+	x   := 0;
+	get := procedure() {
+		res    := this.s + this.x;
+		this.x += 1;
+		return res;
+	};
+	reset := procedure() {
+		x := 0;
+	};
+}
+
 class global() {
 	static {
 		debug := false;
@@ -122,12 +161,12 @@ class global() {
 			if (global.debug) { print(s); }
 		};
 
-		stack    := om;
+		st       := om;
 		stacklen := 0;
 		push     := procedure(name, args := []) {
 			if (global.debug) {
-				if (global.stack == om) { global.stack := stackNode(name, args); }
-				else { global.stack := global.stack.add(name, args, global.stacklen - 1); }
+				if (global.st == om) { global.st := stackNode(name, args); }
+				else { global.st := global.st.add(name, args, global.stacklen - 1); }
 				global.stacklen += 1;
 			}
 		};
@@ -135,12 +174,6 @@ class global() {
 			if (global.debug) {
 				global.stacklen -= 1;
 			}
-		};
-
-		labelCounter := 0;
-		getLabel     := procedure(s := "L") {
-			global.labelCounter += 1;
-			return s + global.labelCounter;
 		};
 
 		keywordsToToks := {
@@ -1363,7 +1396,7 @@ codegenExpr := procedure(node) {
 			insts += [inst("Int", #node.args, node.start, node.end)];
 			insts += [inst(node.id, om, node.start, node.end)];
 		case "Str":
-			insts += [inst(node.id, node.data, node.start, node.end)];
+			insts       += [inst("Str", node.data, node.start, node.end)];
 		case "Float":
 			insts += [inst(node.id, node.data, node.start, node.end)];
 		case "Int":
@@ -1422,7 +1455,7 @@ codegenBlock := procedure(file, ast) {
 	currentVarName := om;
 
 	for (node in ast.args) {
-		global.p("codegenBlock - node: " + node.id);
+		// global.p("codegenBlock - node: " + node.id);
 		match(node.id) {
 			case "Block":
 				block    := codegenBlock(file, node);
@@ -1443,7 +1476,7 @@ codegenBlock := procedure(file, ast) {
 				// ir.procs += [p];
 				// currentVarName = om;
 			case "If":
-				label     := global.getLabel();
+				label     := toCVars.labelCounter.get();
 				body      := codegenBlock(file, node.args[2]);
 				body.code += [inst("Label", label, node.end, node.end)];
 				ir.code   += codegenExpr(node.args[1]);
@@ -1460,7 +1493,7 @@ codegenBlock := procedure(file, ast) {
 				}
 				body := codegenBlock(file, body);
 				if (cond != om) {
-					label     := global.getLabel();
+					label     := toCVars.labelCounter.get();
 					body.code += [inst("Label", label, node.end, node.end)];
 					ir.code   += codegenExpr(cond);
 					ir.code   += [inst("CondJmp", label, node.start, node.end)];
@@ -1482,19 +1515,209 @@ codegenBlock := procedure(file, ast) {
 		}
 	}
 
-	// varInits := [];
-	// for (var in vars) {
-	// 	varInits += [inst("Om", om, 0, 0), inst("Var", var, 0, 0), inst("Assign", om, 0, 0)];
-	// }
-	// ir.code := varInits + ir.code;
+	varInits := [];
+	for (var in vars) {
+		varInits += [inst("Om", om, 0, 0), inst("Var", var, 0, 0), inst("Assign", om, 0, 0)];
+	}
+	ir.code := varInits + ir.code;
 
 	global.pop();
 	return ir;
 };
 
+
+class irToCVars() {
+	labelCounter := counter("L");
+	structPrefix := "__struct_";
+	valStruct    := structPrefix + "Value";
+	varPrefix    := "__stlx_";
+	getVarName   := procedure(instr) {
+		if (startsWith(instr.data, varPrefix)) { return instr.data; }
+		else { return varPrefix + instr.data; }
+	};
+	enumPrefix   := procedure(enumName) {
+		return "__enum_" + enumName + "_";
+	};
+}
+
+// @Note: returns an array with 2 values (first the value that can be used in any expression and then a string for statements that need to come before using the first value)
+makeValueStruct := procedure(file, instr, toCVars) {
+	global.push("makeValueStruct", [["instr", instr.toStr()]]);
+	struct   := "(" + toCVars.valStruct + ")";
+	typeEnum := toCVars.enumPrefix("Type");
+	val := "";
+	var := "";
+	// @TODO: Need to create variables for lists/sets and then using that variable as a value
+	match(instr.id) {
+		case "Var":
+			val += toCVars.getVarName(instr);
+		case "Str":
+			// @TODO: Escape certain characters in string
+			val += struct + "{.type = " + typeEnum + "Str" + ", .data = {.s = \"" + instr.data + "\"}}";
+		case "Int":
+			val += struct + "{.type = " + typeEnum + "Int" + ", .data = {.i = " + instr.data + "}}";
+		case "Float":
+			val += struct + "{.type = " + typeEnum + "Float" + ", .data = {.f = " + instr.data + "}}";
+		case "Om":
+			val += struct + "{0}";
+		default:
+			compileErr(file, instr.start, instr.end, "Making a value out of a '" + instr.id + "' is not yet implemented");
+	}
+	global.pop();
+	return [val, var];
+};
+
+irCodeToC := procedure(file, code, varCounter, toCVars) {
+	global.push("irCodeToC", []);
+
+	res := "";
+	st  := stack();
+	for (instr in code) {
+		match (instr.id) {
+			case "And":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'And' to llvm code is not yet implemented");
+			case "Or":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Or' to llvm code is not yet implemented");
+			case "Eq":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Eq' to llvm code is not yet implemented");
+			case "Ge":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Ge' to llvm code is not yet implemented");
+			case "Le":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Le' to llvm code is not yet implemented");
+			case "Gt":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Gt' to llvm code is not yet implemented");
+			case "Lt":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Lt' to llvm code is not yet implemented");
+			case "In":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'In' to llvm code is not yet implemented");
+			case "Add":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Add' to llvm code is not yet implemented");
+			case "Sub":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Sub' to llvm code is not yet implemented");
+			case "Mul":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Mul' to llvm code is not yet implemented");
+			case "Div":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Div' to llvm code is not yet implemented");
+			case "Mod":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Mod' to llvm code is not yet implemented");
+			case "IntDiv":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'IntDiv' to llvm code is not yet implemented");
+			case "Exp":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Exp' to llvm code is not yet implemented");
+			case "CartProd":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'CartProd' to llvm code is not yet implemented");
+			case "AddCollBin":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'AddCollBin' to llvm code is not yet implemented");
+			case "MulCollBin":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'MulCollBin' to llvm code is not yet implemented");
+			case "AddColl":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'AddColl' to llvm code is not yet implemented");
+			case "MulColl":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'MulColl' to llvm code is not yet implemented");
+			case "Not":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Not' to llvm code is not yet implemented");
+			case "Neg":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Neg' to llvm code is not yet implemented");
+			case "Len":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Len' to llvm code is not yet implemented");
+			case "Assign":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Assign' to llvm code is not yet implemented");
+			case "Ret":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Ret' to llvm code is not yet implemented");
+			case "Range":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Range' to llvm code is not yet implemented");
+			case "Index":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Index' to llvm code is not yet implemented");
+			case "Property":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Property' to llvm code is not yet implemented");
+			case "Call":
+				var    := toCVars.getVarName(st.pop());
+				args   := [];
+				arglen := st.pop().data;
+				while (arglen > 0) {
+					args   += [st.pop()];
+					arglen -= 1;
+				}
+				ret  := varCounter.get();
+				st.push(inst("Var", ret, instr.start, instr.end));
+				call := toCVars.valStruct + " " + ret + " = ";
+				call += var + "(";
+				for (i in {1..#args}) {
+					if (i != 1) { call += ", "; }
+					[val, var] := makeValueStruct(file, args[i], toCVars);
+					call += val;
+					if (var != "") { res += var; }
+				}
+				call += ");\n";
+				res  += call;
+			case "NativeCall":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'NativeCall' to llvm code is not yet implemented");
+			case "Label":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Label' to llvm code is not yet implemented");
+			case "CondJmp":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'CondJmp' to llvm code is not yet implemented");
+			case "Jmp":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Jmp' to llvm code is not yet implemented");
+			case "Set":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Set' to llvm code is not yet implemented");
+			case "List":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'List' to llvm code is not yet implemented");
+			case "Proc":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Proc' to llvm code is not yet implemented");
+			case "Block":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Block' to llvm code is not yet implemented");
+			default:
+				st.push(instr);
+		}
+	}
+
+	global.pop();
+	return res;
+};
+
 // @TODO
-irToLLVM := procedure(ir) {
-	return ir;
+irToC := procedure(file, ir) {
+	// @TODO: Deal with procedures
+	global.push("irToC", []);
+	res := "";
+
+	toCVars    := irToCVars();
+	varCounter := counter(toCVars.varPrefix);
+
+	res += "#include <stdio.h>\n\n";
+
+	typeEnumPrefix := toCVars.enumPrefix("Type");
+	res += "typedef enum {\n";
+	res += "\t" + typeEnumPrefix + "Om = 0,\n";
+	res += "\t" + typeEnumPrefix + "Int,\n";
+	res += "\t" + typeEnumPrefix + "Float,\n";
+	res += "\t" + typeEnumPrefix + "Str,\n";
+	res += "} " + toCVars.structPrefix + "Type;\n";
+
+	res += "typedef struct {\n";
+	res += "\t" + toCVars.structPrefix + "Type type;\n";
+	res += "\tunion {\n";
+	res += "\t\tvoid  *x;\n";
+	res += "\t\tint    i;\n";
+	res += "\t\tfloat  f;\n";
+	res += "\t\tchar  *s;\n";
+	res += "\t} data;\n";
+	res += "} " + toCVars.valStruct + ";\n";
+	res += "\n";
+
+	res += toCVars.valStruct + " " + toCVars.varPrefix + "print" + "(";
+	res += toCVars.valStruct + " str" + ")\n{\n";
+	// @TODO: Check type of value
+	res += "\tputs(str.data.s);\n";
+	res += "}\n\n";
+
+	res += "int main(void)\n{\n";
+	res += "\t" + join(split(irCodeToC(file, ir.code, varCounter, toCVars), "\n"), "\t\n");
+	res += "\treturn 0;\n";
+	res += "}\n";
+
+	global.pop();
+	return res;
 };
 
 compile := procedure(file) {
@@ -1503,16 +1726,15 @@ compile := procedure(file) {
 	toks := lexer(file, str).lex();
 	ast  := parser(file, toks).parse();
 	ast  := addImports(file, ast)[1];
-
-	print("AST:"); // @Cleanup
-	print(ast.dumpToStr(global.debug));
+	// print("AST:"); // @Cleanup
+	// print(ast.dumpToStr(global.debug));
 
 	ir   := codegenBlock(file, ast);
-	print("\nIR:"); // @Cleanup
-	print(ir.displayStr());
+	// print("\nIR:"); // @Cleanup
+	// print(ir.displayStr());
 
-	llvm := irToLLVM(ir);
-	// writeFile("out.ll", llvm); // @TODO: Provide parameter for name of output file
+	c := irToC(file, ir);
+	writeFile("out.c", c); // @TODO: Provide parameter for name of output file
 	global.pop();
 };
 
@@ -1541,12 +1763,7 @@ main := procedure(params) {
 		printErr(e);
 		if (global.debug) {
 			printErr("\nStack:");
-			printErr(global.stack.toStr());
-
-			if (fullDebug) {
-				printErr("Current Function:");
-				printErr(global.stack.get(global.stacklen));
-			}
+			printErr(global.st.toStr());
 		}
 	}
 };

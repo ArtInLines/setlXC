@@ -4,38 +4,23 @@ SetlXC is a Compiler for the Programming Language [SetlX](https://randoom.org/So
 
 ## Disclaimer
 
-**This Project is a Work-In-Progress. Much is still to be done, including code generation.**
+**This Project is a Work-In-Progress. Most things will not properly compile yet.**
 
-## Bootstrapping the Compiler
+## Quickstart
 
-**This is not possible yet, as the compiler is not capable of compiling itself yet. The information in this section will only be relevant in the future.**
+(Note: The following command only works on Windows and if setlX and gcc are in your path. You can easily run both setlX and then any C compiler of your choosing without the batch-script too though)
 
-Since the Compiler is self-hosted (i.e. written in the language it compiles), the question arises of how to compile the compiler. More succintly, how does one bootstrap the compiler?
-
-There are two ways to bootstrap the compiler:
-
-1. Using the SetlX Interpreter
-2. Using LLVM
-
-### Using the SetlX Interpreter
-
-The SetlX Interpreter is the original program, that was used to run SetlX programs. The Interpreter is written in Java an provided via a JAR-File. This means, that you need to have java installed on your machine to run the interpreter.
-
-If those prerequesites are fulfilled, you can run
-
-```console
-> setlX setlXC.stlx -p setlXC.stlx
+```
+> comp.bat <path_to_setlX_file_without_file_ending> -d
 ```
 
-After running that command, the compiler will have compiled its own source code into a llvm-intermediate representation
+### What does the Script do?
 
-### Using LLVM
+The Compiler is actually more of a transpiler than a compiler, as it outputs C code instead of an executable. I might consider making my own compiler backend, that directly outputs an executable someday, but I wanted this project to be cross-platform and I didn't want to spend an eternity on this admittedly rather useless project.
 
-The Compiler uses [LLVM](https://www.llvm.org/) as its backend. This allows us to provide the compiler source code not just in SetlX (`SetlXC.stlx`) but also in LLVM's Intermediate Representation Language (`SetlXC.ll`). This file can be compiled to an executable using LLVM. To do that, run
+Therefore, you need both [SetlX](https://randoom.org/Software/SetlX/) and some C compiler installed on your machine. The `comp.bat` script then first runs the setlXC compiler via the setlX interpreter, before running the C compiler on the output C file.
 
-```console
-> clang setlXC.ll -o setlXC.exe
-```
+If SetlX would support running console commands, this could be done without a separate batch-script. It is thus also a goal of this project, to eventually extend the SetlX language enough to allow the compiler the compile itself without the help of any outside script (except a C compiler). If a custom backend would be created, even the C compiler could be ditched.
 
 ## FAQ
 

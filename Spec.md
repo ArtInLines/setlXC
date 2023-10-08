@@ -152,6 +152,7 @@ typedef struct instType { // Represented as strings in SetlX
 	Index,      // [coll, idx] -> [val]
 	Property,   // [val, str] -> [val]
 	Call,       // [...args, arglen, var] -> [val]
+	NativeCall, // [...args, arglen, var, type] -> [val]
 	Label,      // [] -> [str] | Labels for jumps
 	CondJmp,    // [] -> [] | Jumps to label (given in instData) if last expression computes "false"
 	Jmp,        // [] -> [] | Unconditional Jump to label (given in instData)
