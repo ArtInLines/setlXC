@@ -53,7 +53,7 @@ class stackNode(n, args) {
 }
 
 // Implementation of an actual stack with push, pop and peek operations
-// Used in transforming IR to LLVM code
+// Used in transforming IR to C code
 // @Note: The reason behind using length and capacity variables, is an assumed performance increase - this was not tested though
 class stack() {
 	this.arr  := [];
@@ -124,7 +124,6 @@ splitPath := procedure(path) {
 		}
 	}
 	if (s != "") { res += [s]; }
-	// print("splitPath(" + path + ") = " + res);
 	return res;
 };
 
@@ -137,22 +136,52 @@ joinPaths := procedure(paths) {
 		}
 		else if (paths[i] != ".") { res += [paths[i]]; }
 	}
-	// print("joinPath(" + paths + ") = " + join(res, "/"));
 	return join(res, "/");
 };
 
-class counter(s := "") {
-	s   := s;
-	x   := 0;
-	get := procedure() {
-		res    := this.s + this.x;
-		this.x += 1;
-		return res;
-	};
-	reset := procedure() {
-		x := 0;
-	};
-}
+addIndents := procedure(s, n) {
+	lines := [];
+	line  := "";
+	for (c in s) {
+		if (c == "\n") {
+			if (line != "") {
+				lines += [line];
+				line  := "";
+			}
+		} else {
+			line += c;
+		}
+	}
+	if (line != "") { lines  += [line]; }
+	indent := "\t"*n;
+	res := "";
+	for (l in lines) { res += indent + l + "\n"; }
+	return res;
+};
+
+compileErr := procedure(file, start, endOrLocStr, msg) {
+	printErr(msg + ":");
+	locStr := endOrLocStr;
+	if (isObject(endOrLocStr)) { locStr := loc.toStr(start, endOrLocStr); }
+	printErr(start.locStr() + ": '" + locStr + "'");
+	throw("Compiler Error");
+};
+
+startsWith := procedure(str, prefix, strOffset := 0) {
+	global.push("startsWith", [["str", str], ["prefix", prefix], ["strOffset", strOffset]]);
+	if (#str - strOffset < #prefix) {
+		global.pop();
+		return false;
+	}
+	for (i in {1..#prefix}) {
+		if (str[strOffset + i] != prefix[i]) {
+			global.pop();
+			return false;
+		}
+	}
+	global.pop();
+	return true;
+};
 
 class global() {
 	static {
@@ -276,7 +305,20 @@ class global() {
 	}
 }
 
-// @Cleanup the many different methods on classes that do the exact same thing
+// @Cleanup the many different methods on classes that do the exact same thing (i.e. toStr == toFullStr)
+
+class counter(s := "") {
+	s   := s;
+	x   := 0;
+	get := procedure() {
+		res    := this.s + this.x;
+		this.x += 1;
+		return res;
+	};
+	reset := procedure() {
+		x := 0;
+	};
+}
 
 class loc(file, row, col) {
 	file := file;
@@ -428,31 +470,6 @@ class intermediateRep(procs := [], vars := [], code := []) {
 	};
 	toStr := displayStr;
 }
-
-
-compileErr := procedure(file, start, endOrLocStr, msg) {
-	printErr(msg + ":");
-	locStr := endOrLocStr;
-	if (isObject(endOrLocStr)) { locStr := loc.toStr(start, endOrLocStr); }
-	printErr(start.locStr() + ": '" + locStr + "'");
-	throw("Compiler Error");
-};
-
-startsWith := procedure(str, prefix, strOffset := 0) {
-	global.push("startsWith", [["str", str], ["prefix", prefix], ["strOffset", strOffset]]);
-	if (#str - strOffset < #prefix) {
-		global.pop();
-		return false;
-	}
-	for (i in {1..#prefix}) {
-		if (str[strOffset + i] != prefix[i]) {
-			global.pop();
-			return false;
-		}
-	}
-	global.pop();
-	return true;
-};
 
 class lexer(file_path, str) {
 	file := file_path;
@@ -1526,6 +1543,7 @@ codegenBlock := procedure(file, ast) {
 };
 
 
+// @Note: These should all be global variables, but adding these to a class' static section, uses too much memory for setlX' stack apparently
 class irToCVars() {
 	labelCounter := counter("L");
 	structPrefix := "__struct_";
@@ -1541,25 +1559,25 @@ class irToCVars() {
 }
 
 // @Note: returns an array with 2 values (first the value that can be used in any expression and then a string for statements that need to come before using the first value)
-makeValueStruct := procedure(file, instr, toCVars) {
+makeValueStruct := procedure(file, instr, toCVars, cliteral := true) {
 	global.push("makeValueStruct", [["instr", instr.toStr()]]);
-	struct   := "(" + toCVars.valStruct + ")";
 	typeEnum := toCVars.enumPrefix("Type");
 	val := "";
 	var := "";
+	if (cliteral) { val += "(" + toCVars.valStruct + ")"; }
 	// @TODO: Need to create variables for lists/sets and then using that variable as a value
 	match(instr.id) {
 		case "Var":
 			val += toCVars.getVarName(instr);
 		case "Str":
 			// @TODO: Escape certain characters in string
-			val += struct + "{.type = " + typeEnum + "Str" + ", .data = {.s = \"" + instr.data + "\"}}";
+			val += "{.type = " + typeEnum + "Str" + ", .data = {.s = \"" + instr.data + "\"}}";
 		case "Int":
-			val += struct + "{.type = " + typeEnum + "Int" + ", .data = {.i = " + instr.data + "}}";
+			val += "{.type = " + typeEnum + "Int" + ", .data = {.i = " + instr.data + "}}";
 		case "Float":
-			val += struct + "{.type = " + typeEnum + "Float" + ", .data = {.f = " + instr.data + "}}";
+			val += "{.type = " + typeEnum + "Float" + ", .data = {.f = " + instr.data + "}}";
 		case "Om":
-			val += struct + "{0}";
+			val += "{0}";
 		default:
 			compileErr(file, instr.start, instr.end, "Making a value out of a '" + instr.id + "' is not yet implemented");
 	}
@@ -1575,61 +1593,67 @@ irCodeToC := procedure(file, code, varCounter, toCVars) {
 	for (instr in code) {
 		match (instr.id) {
 			case "And":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'And' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'And' to C code is not yet implemented");
 			case "Or":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Or' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Or' to C code is not yet implemented");
 			case "Eq":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Eq' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Eq' to C code is not yet implemented");
 			case "Ge":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Ge' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Ge' to C code is not yet implemented");
 			case "Le":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Le' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Le' to C code is not yet implemented");
 			case "Gt":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Gt' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Gt' to C code is not yet implemented");
 			case "Lt":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Lt' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Lt' to C code is not yet implemented");
 			case "In":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'In' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'In' to C code is not yet implemented");
 			case "Add":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Add' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Add' to C code is not yet implemented");
 			case "Sub":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Sub' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Sub' to C code is not yet implemented");
 			case "Mul":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Mul' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Mul' to C code is not yet implemented");
 			case "Div":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Div' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Div' to C code is not yet implemented");
 			case "Mod":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Mod' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Mod' to C code is not yet implemented");
 			case "IntDiv":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'IntDiv' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'IntDiv' to C code is not yet implemented");
 			case "Exp":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Exp' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Exp' to C code is not yet implemented");
 			case "CartProd":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'CartProd' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'CartProd' to C code is not yet implemented");
 			case "AddCollBin":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'AddCollBin' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'AddCollBin' to C code is not yet implemented");
 			case "MulCollBin":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'MulCollBin' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'MulCollBin' to C code is not yet implemented");
 			case "AddColl":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'AddColl' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'AddColl' to C code is not yet implemented");
 			case "MulColl":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'MulColl' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'MulColl' to C code is not yet implemented");
 			case "Not":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Not' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Not' to C code is not yet implemented");
 			case "Neg":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Neg' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Neg' to C code is not yet implemented");
 			case "Len":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Len' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Len' to C code is not yet implemented");
 			case "Assign":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Assign' to llvm code is not yet implemented");
+				var := toCVars.getVarName(st.pop());
+				val := st.pop();
+				assign := toCVars.valStruct + " " + var + " = ";
+				[x, y] := makeValueStruct(file, val, toCVars, false);
+				assign += x + ";\n";
+				res += y;
+				res += assign;
 			case "Ret":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Ret' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Ret' to C code is not yet implemented");
 			case "Range":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Range' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Range' to C code is not yet implemented");
 			case "Index":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Index' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Index' to C code is not yet implemented");
 			case "Property":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Property' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Property' to C code is not yet implemented");
 			case "Call":
 				var    := toCVars.getVarName(st.pop());
 				args   := [];
@@ -1646,26 +1670,26 @@ irCodeToC := procedure(file, code, varCounter, toCVars) {
 					if (i != 1) { call += ", "; }
 					[val, var] := makeValueStruct(file, args[i], toCVars);
 					call += val;
-					if (var != "") { res += var; }
+					res  += var;
 				}
 				call += ");\n";
 				res  += call;
 			case "NativeCall":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'NativeCall' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'NativeCall' to C code is not yet implemented");
 			case "Label":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Label' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Label' to C code is not yet implemented");
 			case "CondJmp":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'CondJmp' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'CondJmp' to C code is not yet implemented");
 			case "Jmp":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Jmp' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Jmp' to C code is not yet implemented");
 			case "Set":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Set' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Set' to C code is not yet implemented");
 			case "List":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'List' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'List' to C code is not yet implemented");
 			case "Proc":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Proc' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Proc' to C code is not yet implemented");
 			case "Block":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Block' to llvm code is not yet implemented");
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Block' to C code is not yet implemented");
 			default:
 				st.push(instr);
 		}
@@ -1709,10 +1733,11 @@ irToC := procedure(file, ir) {
 	res += toCVars.valStruct + " str" + ")\n{\n";
 	// @TODO: Check type of value
 	res += "\tputs(str.data.s);\n";
+	res += "\treturn " + makeValueStruct(file, inst("Om", om, 0, 0), toCVars)[1] + ";\n";
 	res += "}\n\n";
 
 	res += "int main(void)\n{\n";
-	res += "\t" + join(split(irCodeToC(file, ir.code, varCounter, toCVars), "\n"), "\t\n");
+	res += addIndents(irCodeToC(file, ir.code, varCounter, toCVars), 1);
 	res += "\treturn 0;\n";
 	res += "}\n";
 

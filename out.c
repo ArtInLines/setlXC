@@ -19,11 +19,13 @@ typedef struct {
 __struct_Value __stlx_print(__struct_Value str)
 {
 	puts(str.data.s);
+	return (__struct_Value){0};
 }
 
 int main(void)
 {
-	__struct_Value __stlx_0 = __stlx_print((__struct_Value){.type = __enum_Type_Str, .data = {.s = "Hello World"}});	
+	__struct_Value __stlx_x = {.type = __enum_Type_Str, .data = {.s = "Hello World"}};
+	__struct_Value __stlx_0 = __stlx_print((__struct_Value)__stlx_x);
 	return 0;
 }
 
