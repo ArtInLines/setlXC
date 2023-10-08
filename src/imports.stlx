@@ -1,0 +1,52 @@
+load("util.stlx");
+load("parser.stlx");
+
+// @Note: Returns an array with the modified ast and a list of filenames that were imported
+addImports := procedure(file, ast, importedFiles := []) {
+	global.push("addImports", [["file", file], ["ast", ast.displayStr()], ["importedFiles", importedFiles]]);
+	if (!ast.is("Block")) { stop("Start Assumption of addImports broken. Expects ast to be a Block, but received a " + ast.id + " instead."); }
+
+	dirParts      := splitPath(file)[1..-2];
+	importedFiles := [file] + importedFiles;
+
+	traverse := closure(node, outerScope) {
+		if (node.is("Assign") && node.args[1].is("Iden") && node.args[1].data == "load") {
+			compileErr(file, node.start, "load := ...", "Overwriting the builtin function 'load' is not supported");
+		}
+		else if (node.is("Call") && node.data.is("Iden") && node.data.data == "load") {
+			if (!outerScope) {
+				compileErr(file, node.start, node.end, "load(...) can only be called from the outermost file scope");
+			}
+			params := node.args;
+			if (#params != 1) {
+				compileErr(file, node.start, node.end, "load(file_name) requires exactly one input parameter, which is required to be a string literal");
+			}
+			file_name := node.args[1];
+			if (!file_name.is("Str")) {
+				compileErr(file, node.start, node.end, "The filename provided to load(...) must be a string literal. Dynamic imports are not supported");
+			}
+			file_name := joinPaths(dirParts + splitPath(file_name.data));
+			// Prevent duplicate imports
+			if (file_name notin importedFiles) {
+				try {
+					content := join(readFile(file_name), "\n");
+					toks    := lexer(file_name, content).lex();
+					new_ast := parser(file_name, toks).parse();
+					new_ast := addImports(file_name, new_ast, importedFiles);
+					importedFiles += [file_name];
+				} catch (e) {
+					compileErr(file, node.start, node.end, "An Error occurred while adding imports: " + e);
+				}
+			} else if (file == file_name) {
+				compileErr(file, node.start, node.end, "Self-referential file-loading is not allowed.");
+			}
+		}
+		else { node.args := [ traverse(arg, false) : arg in node.args ]; }
+		return node;
+	};
+
+	nodes := [traverse(node, true) : node in ast.args];
+	ast   := astNode("Block", ast.start, ast.end, om, nodes);
+	global.pop();
+	return [ast, importedFiles];
+};

@@ -1,0 +1,345 @@
+// stackNode is used to create a Stack-trace for debugging the compiler
+// @Note: This is actually a tree, since I have found myself wanting to get information about past snapshots of the stack-trace as well
+// However, calling toStr() prints the stackNode as though it actually was a stack
+class stackNode(n, args) {
+	this.name     := n;
+	this.args     := args; // List of argument-tuples (names, values) @Note: values must also be provided as strings
+	this.children := [];   // List of children nodes
+	argsToStr := procedure() {
+		if (#this.args == 0) { return ""; }
+		s := "(";
+		for (arg in args) {
+			s += arg[1] + ": " + arg[2] + ", ";
+		}
+		idx := #s - 2;
+		return s[1..idx] + ")";
+	};
+	// Get a string representation of the stack over time (meaning in tree-representation)
+	toFullStr := procedure(in_level := 0, in_str := "  ") {
+		s := in_str * in_level;
+		s += this.name;
+		for (c in this.children) {
+			s += "\n" + c.toFullStr(in_level + 1, in_str);
+		}
+		return s;
+	};
+	// Get a string representation of the current stack
+	toStr := procedure(len := global.stacklen) {
+		depth := 0;
+		s     := this.name + " " + this.argsToStr();
+		node  := this;
+		while (node.children != [] && depth < len) {
+			node  := node.children[#node.children];
+			s     += "\n" + node.name + " " + node.argsToStr();
+			depth += 1;
+		}
+		return s;
+	};
+	// Get the node at level x
+	get := procedure(x := 1) {
+		if (x <= 1) { return this; }
+		else if (this.children == []) { stop("Error in getting StackNode"); }
+		else { return this.children[#this.children].get(x - 1); }
+	};
+	// Add a new node to level x
+	add := procedure(n, args := {}, x := 0) {
+		if (x <= 0) {
+			if (this.children == []) { this.children := [stackNode(n, args)]; }
+			else                     { this.children += [stackNode(n, args)]; }
+		} else if (this.children == []) { stop("Error in adding to stackNode"); }
+		else { this.children[#children] := this.children[#children].add(n, args, x - 1); }
+		return this;
+	};
+}
+
+class global() {
+	static {
+		debug := false;
+		p     := procedure(s) {
+			if (global.debug) { print(s); }
+		};
+
+		st       := om;
+		stacklen := 0;
+		push     := procedure(name, args := []) {
+			if (global.debug) {
+				if (global.st == om) { global.st := stackNode(name, args); }
+				else { global.st := global.st.add(name, args, global.stacklen - 1); }
+				global.stacklen += 1;
+			}
+		};
+		pop := procedure() {
+			if (global.debug) {
+				global.stacklen -= 1;
+			}
+		};
+
+		keywordsToToks := {
+			["class", "Class"],
+			["static", "Static"],
+			["in", "In"],
+			["notin", "Notin"],
+			["return", "Ret"],
+			["procedure", "Proc"],
+			["cachedProcedure", "CachedProc"],
+			["try", "Try"],
+			["catch", "Catch"],
+			["if", "If"],
+			["else", "Else"],
+			["for", "For"],
+			["while", "While"],
+			["do", "Do"]
+		};
+
+		symbolsToToks := [
+			["(", "LParan"],
+			[")", "RParan"],
+			["[", "LBrack"],
+			["]", "RBrack"],
+			["{", "LCurly"],
+			["}", "RCurly"],
+			["|->", "Lambda"],
+			["|=>", "ScopedLambda"], // @Name
+			["<==>", "Equiv"],
+			["<!=>", "Xor"],
+			["=>", "Entail"],
+			["||", "Or"],
+			["&&", "And"],
+			[":=", "Assign"],
+			["==", "Eq"],
+			["!=", "Ne"],
+			["<=", "Le"],
+			[">=", "Ge"],
+			["<", "Lt"],
+			[">", "Gt"],
+			["!", "Not"],
+			["**", "Exp"],
+			["+/", "AddColl"],
+			["*/", "MulColl"],
+			["><", "CartProd"],
+			["+=", "AddAssign"],
+			["-=", "SubAssign"],
+			["*=", "MulAssign"],
+			["/=", "DivAssign"],
+			["%=", "ModAssign"],
+			['\=', "IntDivAssign"],
+			["+", "Add"],
+			["-", "Sub"],
+			["*", "Mul"],
+			["/", "Div"],
+			["%", "Mod"],
+			['\', "IntDiv"],
+			["#", "Hash"],
+			[",", "Comma"],
+			[";", "SemiColon"],
+			[":", "Colon"],
+			["..", "DotDot"],
+			[".", "Dot"]
+		];
+
+		assignToks := ["Assign", "AddAssign", "SubAssign", "MulAssign", "DivAssign", "ModAssign", "IntDivAssign"];
+
+		unaryOps := ["AddColl", "MulColl", "Sub", "Not", "Hash"];
+
+		// The higher the precedence, the earlier the operation is evaluated
+		binOpPrecs := {
+			["Equiv", 20],
+			["Xor", 20],
+			["Entail", 31],
+			["Or", 32],
+			["And", 33],
+			["Le", 35],
+			["Ge", 35],
+			["Lt", 35],
+			["Gt", 35],
+			["In", 35],
+			["Notin", 35],
+			["Eq", 35],
+			["Ne", 35],
+			["Add", 40],
+			["Sub", 40],
+			["Mul", 50],
+			["Div", 50],
+			["Mod", 50],
+			["IntDiv", 50],
+			["CartProd", 50],
+			["AddColl", 60],
+			["MulColl", 60],
+			["Exp", 90]
+		};
+
+		isRightAssoc := procedure(toktype) {
+			return toktype in { "Exp", "Assign", "AddAssign", "SubAssign", "MulAssign", "DivAssign", "ModAssign", "IntDivAssign" };
+		};
+	}
+}
+
+// Implementation of an actual stack with push, pop and peek operations
+// Used in transforming IR to C code
+// @Note: The reason behind using length and capacity variables, is an assumed performance increase - this was not tested though
+class stack() {
+	this.arr  := [];
+	this.size := 0;
+	this.cap  := 0;
+	len       := procedure()  { return #this.arr; };
+	peek      := procedure()  { return this.arr[this.size]; };
+	push      := procedure(x) {
+		this.size += 1;
+		if (this.size <= this.cap) { this.arr[this.size] := x; }
+		else {
+			this.arr += [x];
+			this.cap += 1;
+		}
+	};
+	pop       := procedure()  {
+		if (this.size == 0) { return om; }
+		this.size -= 1;
+		return this.arr[this.size + 1];
+	};
+}
+
+setToStr := procedure(set, f := om) {
+	if (f == om) { return "" + {   x  : x in set }; }
+	else         { return "" + { f(x) : x in set }; }
+};
+
+listToStr := procedure(list, f := om) {
+	if (f == om) { return "" + [   x  : x in list ]; }
+	else         { return "" + [ f(x) : x in list ]; }
+};
+
+orderedEq := procedure(l1, l2) {
+	if (#l1 != #l2) { return false; }
+	for (i in {1..#l1}) {
+		if (l1[i] != l2[i]) { return false; }
+	}
+	return true;
+};
+
+unorderedEq := procedure(s1, s2) {
+	if (#s1 != #s2) { return false; }
+	for (x in s1) {
+		if (x notin s2) { return false; }
+	}
+	return true;
+};
+
+// @Note: Both t1 and t2 are expected to be sets of baseTypes (aka strings)
+addTypes := procedure(t1, t2) {
+	res := t1 + t2;
+	if ("Any" in res) { return {"Any"}; }
+	else              { return res;     }
+};
+
+// Takes a file-/folder-path as input and returns a list of all the folders/files in the path
+splitPath := procedure(path) {
+	res := [];
+	s   := "";
+	for (c in path) {
+		if (c == "/" || c == "\\") {
+			if (s != "") {
+				res += [s];
+				s   := "";
+			}
+		} else {
+			s += c;
+		}
+	}
+	if (s != "") { res += [s]; }
+	return res;
+};
+
+// Takes a list of path-parts (as returned by splitPath) as input and returns the canonical path as a string
+joinPaths := procedure(paths) {
+	res := [];
+	for (i in {1..#paths}) {
+		if (paths[i] == "..") {
+			if (#res > 0) { res := res[1..#res-2]; }
+		}
+		else if (paths[i] != ".") { res += [paths[i]]; }
+	}
+	return join(res, "/");
+};
+
+addIndents := procedure(s, n) {
+	lines := [];
+	line  := "";
+	for (c in s) {
+		if (c == "\n") {
+			if (line != "") {
+				lines += [line];
+				line  := "";
+			}
+		} else {
+			line += c;
+		}
+	}
+	if (line != "") { lines  += [line]; }
+	indent := "\t"*n;
+	res := "";
+	for (l in lines) { res += indent + l + "\n"; }
+	return res;
+};
+
+compileErr := procedure(file, start, endOrLocStr, msg) {
+	printErr(msg + ":");
+	locStr := endOrLocStr;
+	if (isObject(endOrLocStr)) { locStr := loc.toStr(start, endOrLocStr); }
+	printErr(start.locStr() + ": '" + locStr + "'");
+	throw("Compiler Error");
+};
+
+startsWith := procedure(str, prefix, strOffset := 0) {
+	global.push("startsWith", [["str", str], ["prefix", prefix], ["strOffset", strOffset]]);
+	if (#str - strOffset < #prefix) {
+		global.pop();
+		return false;
+	}
+	for (i in {1..#prefix}) {
+		if (str[strOffset + i] != prefix[i]) {
+			global.pop();
+			return false;
+		}
+	}
+	global.pop();
+	return true;
+};
+
+class counter(s := "") {
+	s   := s;
+	x   := 0;
+	get := procedure() {
+		res    := this.s + this.x;
+		this.x += 1;
+		return res;
+	};
+	reset := procedure() {
+		x := 0;
+	};
+}
+
+class loc(file, row, col) {
+	file := file;
+	row  := row;
+	col  := col;
+	className := procedure() { return "loc"; };
+	equals    := procedure(other) { return other != om && file == other.file && row == other.row && col == other.col; };
+	locStr    := procedure() { return file + ":" + row + ":" + col; };
+	toStr     := locStr;
+
+	static {
+		toStr := procedure(start, end) {
+			global.push("loc.toStr", [["start", start.locStr()], ["end", end.locStr()]]);
+			if (start.file != end.file) { stop("loc.toStr(start, end) doesn't work if `start` and `end` are locations in different files"); }
+			lines := readFile(start.file, [start.row..end.row]);
+			if (start.row == end.row) {
+				lines[1] := lines[1][start.col..end.col];
+			} else {
+				lines[1] := lines[1][start.col..];
+				lines[-1] := lines[-1][..end.col];
+			}
+			global.pop();
+			return join(lines, "\n");
+		};
+	}
+}

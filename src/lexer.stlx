@@ -1,0 +1,200 @@
+load("util.stlx");
+
+class token(id, start, end, data := om) {
+	id         := id;
+	start      := start;
+	end        := end;
+	data       := data;
+	className  := procedure() { return "token"; }; // @Cleanup should this really be a procedure?
+	is         := procedure(typ) { return id == typ; };
+	// @Note: Primary values are literals or paranthesized expressions
+	isPrimary  := procedure() { return id in {"Iden", "Str", "Int", "Float", "LParan", "LBrack", "LCurly"}; };
+	equals     := procedure(other) { return other != om && id == other.id && start == other.start && end == other.end && data == other.data; };
+	displayStr := procedure() {
+		global.push("token.displayStr", []);
+		res := om;
+		if (data == om) {
+			res := id;
+		} else {
+			res := id + "('" + data + "')";
+		}
+		global.pop();
+		return res;
+	};
+	toStr := displayStr;
+}
+
+class lexer(file_path, str) {
+	file := file_path;
+	str  := str;
+	cur  := 1;
+	bol  := 0;
+	lc   := 1;
+	len  := #str;
+	className := procedure() { return "lexer"; };
+
+	is_space := procedure(c := str[cur]) {
+		return c == " " || c == "\t" || c == "\n" || c == "\r";
+	};
+
+	is_newline := procedure(c := str[cur]) {
+		return c == "\n";
+	};
+
+	chop_char := procedure() {
+		if (is_newline()) {
+			this.bol := this.cur;
+			this.lc += 1;
+		}
+		this.cur += 1;
+	};
+
+	chop_lc := procedure() {
+		// Line Comment
+		if(str[cur..cur+1] != "//") { stop("chop_lc should only be called when str[cur..cur+1] == '//' is true"); }
+		this.cur += 2;
+		while (cur <= len && !is_newline(str[cur])) {
+			chop_char();
+		}
+	};
+
+	chop_bc := procedure() {
+		// Block Comment
+		start_cur := cur;
+		start := loc(file, lc,start_cur - bol);
+		if(str[cur..cur+1] != "/*") { stop("chop_bc should only be called when str[cur..cur+1] == '/*' is true"); }
+		this.cur += 2;
+		while (cur <= len) {
+			// Return from function, when block comment is over
+			if (cur < len && str[cur..cur+1] == "*/") {
+				this.cur += 2;
+				return om;
+			}
+			chop_char();
+		}
+		compileErr(file, start, str[start_cur..cur], "Unclosed Block Comment");
+	};
+
+	next_word := procedure() {
+		start := cur;
+		s := str[cur];
+		this.cur += 1;
+		while (cur < len && matches(str[cur], '[a-zA-Z_0-9]')) {
+			s += str[cur];
+			chop_char();
+		}
+
+		start := loc(file, lc,start - bol);
+		end := loc(file, lc,cur - bol);
+		if (s in domain(global.keywordsToToks)) {
+			return token(global.keywordsToToks[s], start, end);
+		} else {
+			return token("Iden", start, end, s);
+		}
+	};
+
+	next_num := procedure() {
+		start := cur;
+		s := str[cur];
+		this.cur += 1;
+		isFloat := false;
+		while (cur < len && matches(str[cur], '[0-9.]')) {
+			if (str[cur] == '.') {
+				// The dot is here to start a range, not to make a float
+				if (str[cur+1] == '.') { break; }
+				if (isFloat) { compileErr(file, loc(file, lc,start - bol), str[start..cur], "Only one '.' is allowed for numbers."); }
+				isFloat := true;
+			}
+			s += str[cur];
+			chop_char();
+		}
+
+		start := loc(file, lc,start - bol);
+		end := loc(file, lc, cur - bol);
+		if (isFloat) {
+			return token("Float", start, end, s);
+		} else {
+			return token("Int", start, end, s);
+		}
+	};
+
+	next_symbol := procedure() {
+		start := cur;
+		for([sym, tok] in global.symbolsToToks) {
+			if (startsWith(str, sym, cur - 1)) {
+				this.cur += #sym;
+				return token(tok, loc(file, lc, start - bol), loc(file, lc, cur - bol));
+			}
+		}
+		compileErr(file, loc(file, lc,start - bol), str[start], "Unknown Symbol");
+	};
+
+	next_str := procedure() {
+		start := loc(file, lc,cur - bol);
+		strDelim := str[cur];
+		this.cur += 1;
+		s := "";
+		while (cur < len && str[cur] != strDelim) {
+			if (strDelim == '"' && str[cur] == '\') {
+				chop_char();
+				if (cur > len) { break; }
+				match (str[cur]) {
+					// List of escape-chars: https://docs.oracle.com/javase/tutorial/java/data/characters.html
+					regex 't': s += "\t";
+					regex 'b': s += "\b";
+					regex 'n': s += "\n";
+					regex 'r': s += "\r";
+					regex 'f': s += "\f";
+					regex '"': s += '"';
+					regex "'": s += "'";
+					regex '\\': s += '\';
+					default: return compileErr(file, start, s + '\' + str[cur], "Invalid Escape Character '" + str[cur] + "'");
+				}
+			} else {
+				s += str[cur];
+			}
+			chop_char();
+		}
+
+		if (cur > len) {
+			return compileErr(file, start, loc(file, lc,cur - bol), strDelim + s, "Unclosed String");
+		}
+		assert(str[cur] == strDelim, "At the end of the while-loop, it is expected that `str[cur] == strEnd` is true, unless the string is unclosed");
+		chop_char();
+		end := loc(file, lc,cur - bol);
+		return token("Str", start, end, s);
+	};
+
+	next_token := procedure() {
+		// global.p("next_token  -  cur=" + cur + ", str[cur]=" + str[cur]);
+		while(cur <= len && is_space()) {
+			chop_char();
+		}
+		if (cur > len) {
+			return om;
+		}
+		if (matches(str[cur], '[a-zA-Z_]')) { return next_word();   }
+		else if (matches(str[cur], '[0-9]')) { return next_num();    }
+		else if (str[cur] == '"') { return next_str(); }
+		else if (str[cur] == "'") { return next_str(); }
+		else if (cur < len && str[cur..cur+1] == "//") {
+			chop_lc();
+			return next_token();
+		}
+		else if (cur < len && str[cur..cur+1] == "/*") {
+			chop_bc();
+			return next_token();
+		}
+		else { return next_symbol(); }
+	};
+
+	lex := procedure() {
+		toks := [];
+		t := next_token();
+		while (t != om) {
+			toks += [t];
+			t := next_token();
+		}
+		return toks;
+	};
+}

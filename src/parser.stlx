@@ -1,0 +1,704 @@
+load("util.stlx");
+load("lexer.stlx");
+
+class astNode(id, start, end, data := om, args := [], types := {"None"}) {
+	id        := id;
+	start     := start;
+	end       := end;
+	data      := data;
+	args      := args;
+	types     := types;
+	className := procedure() { return "astNode"; };
+	is        := procedure(x) { return id == x; };
+	equals    := procedure(x) { return x != om && id == x.id && start == x.start && end == x.end && data == x.data; }; // Not checking children for equality for performance reasons
+	dataToStr := procedure() {
+		global.push("astNode.dataToStr", []);
+		dat := data;
+		if (data != om && isObject(data) && data.className() == "astNode") { dat := dat.displayStr(); }
+		global.pop();
+		return dat;
+	};
+	dumpToStr := procedure(show_loc := false, indent_level := 0, single_indent := "  ") {
+		global.push("astNode.dumpToStr", [["show_loc", show_loc], ["indent_level", indent_level], ["single_indent", single_indent]]);
+		s := single_indent * indent_level + "@" + id;
+		if (data != om) { s += "('" + dataToStr() + "')"; }
+		if (show_loc) { s += " [" + start.locStr() + " - " + end.locStr() + "]"; }
+		for (c in args) { s += "\n" + c.dumpToStr(show_loc, indent_level + 1, single_indent); }
+		global.pop();
+		return s;
+	};
+	displayStr := procedure() {
+		global.push("astNode.displayStr", []);
+		res := om;
+		if (data ==  om) {
+			res := "@" + id;
+		} else {
+			res := "@" + id + "(" + dataToStr() + ")";
+		}
+		global.pop();
+		return res;
+	}; // for compatibility with token-class
+	toStr := displayStr;
+}
+
+
+class parser(file_path, toks) {
+	file := file_path;
+	toks := toks;
+	len  := #toks;
+	idx  := 1;
+	className := procedure() { return "parser"; };
+
+	// @Cleanup provide further functions like lastTok() to remove necessity for manually updating idx
+	// @Performance Don't create list of all tokens, but only compute them as required and store only the last x tokens in a buffer
+
+	cur_tok := procedure() {
+		return toks[idx];
+	};
+
+	chop_tok := procedure() {
+		if (idx > len) {
+			compileErr(file, toks[-1].start, toks[-1].end, "Unexpected End of File.");
+		}
+		t := toks[idx];
+		this.idx += 1;
+		return t;
+	};
+
+	get_tok_prec := procedure() {
+		if (toks[idx] in domain(global.binOpPrecs)) {
+			return global.binOpPrecs[toks[idx]];
+		} else {
+			return -1;
+		}
+	};
+
+	parse := procedure() {
+		global.push("parse");
+		if (len == 0) {
+			return astNode("Block", 0, 0, om, [], exprType("Om"));
+		}
+
+		stmts := [];
+		types := om;
+		while (idx <= len) {
+			stmt  := parseStmt({["Class", [] |=> parseClass()]});
+			stmts += [stmt];
+			if (stmt.is("Ret") && types == om) { types := stmt.types; }
+		}
+		if (types == om) { types := {"Om"}; }
+
+		global.pop();
+		return astNode("Block", toks[1].start, toks[-1].end, om, stmts, types);
+	};
+
+	parseStmt := procedure(additionalCases := {}, invalidCases := {}) {
+		global.push("parseStmt", [["additionalCases", setToStr(additionalCases, x |=> x[1])], ["invalidCases", setToStr(invalidCases, x |=> x[1])]]);
+		t := chop_tok();
+		res := om;
+		// global.p("parseStmt - t: " + t.toStr() + ", cur_tok(): " + cur_tok().toStr());
+		switch {
+			case t.id in domain(invalidCases):    res := compileErr(file, t.start, t.end, invalidCases[t.id]);
+			case t.id in domain(additionalCases): res := additionalCases[t.id]();
+			case t.is('If'):        res := parseIf();
+			case t.is('Else'):      res := parseElse();
+			case t.is('Match'):     res := parseMatch();
+			case t.is("Switch"):    res := parseSwitch();
+			case t.is("Try"):       res := parseTry();
+			case t.is("Scan"):      res := parseScan();
+			case t.is("For"):       res := parseFor();
+			case t.is("While"):     res := parseWhile();
+			case t.is("Do"):        res := parseDoWhile();
+			case t.is("Check"):     res := parseCheck();
+			case t.is("Backtrack"): res := parseBacktrack();
+			case t.is("Ret"):
+				expr := parseExprWithEndTok(chop_tok(), "SemiColon");
+				res := astNode("Ret", t.start, toks[idx-1].end, om, [expr], expr.types);
+			case t.isPrimary(): res := parseExprOrAssignWithEndTok(t, "SemiColon");
+			default: compileErr(file, t.start, t.end, "Invalid Token starting Statement: " + t.displayStr());
+		}
+		// global.p("parsed stmt: " + res.displayStr());
+		global.pop();
+		return res;
+	};
+
+	// Starts with t == toks[idx-1] == first token of expression/assignment
+	// Expects t to be a primary token as well
+	// Ends after token of endTokTypes
+	// @Name is very long but at least descriptive???
+	parseExprOrAssignWithEndTok := procedure(t, endTokTypes) {
+		if (!isList(endTokTypes)) { endTokTypes := [endTokTypes]; }
+		global.push("parseExprOrAssignWithEndTok", [["t", t.toStr()], ["endTokTypes", listToStr(endTokTypes)]]);
+		if (!t.isPrimary()) { stop("parseExprOrAssignWithEndTok - start assumption broken"); }
+
+		res := parseExprWithEndTok(t, endTokTypes + global.assignToks);
+		if (toks[idx-1].id in global.assignToks) {
+			assignTok := toks[idx-1];
+			if (res.id notin {"Iden", "Index", "Property"}) {
+				compileErr(file, res.start, assignTok.end, "Expected an identifier before assignment. Found a " + res.displayStr() + " instead");
+			}
+			val := parseExprWithEndTok(chop_tok(), endTokTypes);
+			if (assignTok.id != "Assign") {
+				bin_op_typ := assignTok.id[..-7]; // -7 comes from `- #"Assign" - 1`
+				bin_op     := astNode("BinOp",  res.start, val.end, bin_op_typ, [res, val]);    // @TODO Calculate type for BinOp
+				res        := astNode("Assign", res.start, val.end, om,         [res, bin_op]);
+			} else {
+				res := astNode("Assign", res.start, val.end, om, [res, val]);
+			}
+		}
+
+		if (toks[idx-1].id notin endTokTypes) { stop("parseExprOrAssignWithEndTok: end assumption broken"); }
+		global.pop();
+		return res;
+	};
+
+	// Starts with first token of expr or astNode
+	// Ends after token of endTokTypes
+	parseExprWithEndTok := procedure(t, endTokTypes) {
+		if (!isList(endTokTypes)) { endTokTypes := [endTokTypes]; }
+		global.push("parseExprWithEndTok", [["t", t.toStr()], ["endTokTypes", listToStr(endTokTypes)]]);
+		if (idx > len) {
+			compileErr(file, t.start, t.end, "Unexpected End of File. Expected a ';'");
+		}
+		nt := chop_tok();
+		// global.p("exprWithEndTok - t: " + t.displayStr());
+		// global.p("exprWithEndTok - nt: " + nt.displayStr());
+		// global.p("exprWithEndTok - endTokTypes: " + endTokTypes);
+
+		res := om;
+		switch {
+			case nt.id in endTokTypes:
+				if (t.className() != "astNode") {
+					this.idx -= 1;
+					res := parsePrimary(t);
+					this.idx += 1;
+				} else {
+					res := t;
+				}
+			case t.is("Proc"):
+				res := parseProc(nt);
+				this.idx += 1;
+			case t.className() == "token" && t.id in global.unaryOps:
+				this.idx -= 2;
+				unary := parseUnary();
+				if (idx > len && #endTokTypes > 0) {
+					compileErr(file, t.start, op_ast.end, "Invalid End of File. Expected one of the following symbols: " + endTokTypes);
+				}
+				res := parseExprWithEndTok(unary, endTokTypes);
+			case nt.id in domain(global.binOpPrecs):
+				this.idx -= 1;
+				op_ast := parseBinOps(t, 0);
+				if (idx > len && #endTokTypes > 0) {
+					compileErr(file, t.start, op_ast.end, "Invalid End of File. Expected one of the following symbols: " + endTokTypes);
+				}
+				res := parseExprWithEndTok(op_ast, endTokTypes);
+			case t.className() == "token" && t.isPrimary():
+				this.idx -= 2;
+				res := parseExprWithEndTok(parsePrimary(), endTokTypes);
+			case t.className() == "astNode" && nt.is("LBrack"):
+				// @Note: The idea is to parse an Index. The index can either be a normal expression or a range
+				// Since a range can have an implicit start token, we only call parseExprWithEndTok if there is
+				// no implicit start value for range.
+				// @Cleanup This piece of code is probably hard to read and kind of hacky
+
+				nt := chop_tok();
+				stmt := om;
+				if (!nt.is("DotDot")) { stmt := parseExprWithEndTok(nt, ["RBrack", "DotDot"]); }
+				if (toks[idx-1].is("DotDot")) {
+					x := om;
+					if (!cur_tok().is("RBrack")) { x := parseExprWithEndTok(chop_tok(), ["RBrack"]); }
+					else { chop_tok(); }
+
+					if (stmt == om) { stmt := astNode("Range", t.start, toks[idx-1].end, om, [t,       x], {"List"}); }
+					else            { stmt := astNode("Range", t.start, toks[idx-1].end, om, [t, stmt, x], {"List"}); }
+				}
+				node := astNode("Index", t.start, toks[idx-1].end, om, [t, stmt], {"List"}); // @TODO: Update type here
+				res := parseExprWithEndTok(node, endTokTypes);
+			case nt.is("LParan"):
+				argList := parseCommaSeparated("RParan");
+				data := t;
+				if (t.className() == "token") { data := t.data; }
+				call := astNode("Call", t.start, toks[idx-1].end, data, argList);
+				res := parseExprWithEndTok(call, endTokTypes);
+			case nt.is("Dot"):
+				tt := chop_tok();
+				if (!tt.is("Iden")) { compileErr(file, tt.start, loc.toStr(t.start, tt.end), "Syntax Error. Only identifiers are allowed as accessors after a dot."); }
+				tt := parsePrimary(tt);
+				p := t.data;
+				if (t.className() == "astNode") { p := t; }
+				prop := astNode("Property", t.start, tt.end, t.data, [tt]);
+				res := parseExprWithEndTok(prop, endTokTypes);
+			default:
+				global.p("endTokTypes: " + endTokTypes);
+				global.p("t.loc: " + t.start.locStr() + " - " + t.end.locStr());
+				global.p("nt.loc: " + nt.start.locStr() + " - " + nt.end.locStr());
+				compileErr(file, t.start, nt.end, "Unhandled case for initial token " + t.displayStr() + " and next token " + nt.displayStr() + ". This case was not implemented yet");
+		}
+
+		if (toks[idx-1].id notin endTokTypes) { stop("parseExprWithEndTok: end assumption broken"); }
+		global.pop();
+		return res;
+	};
+
+	// Parses a Block of Statements until the endTok is reached.
+	// Starts with toks[idx-1] being the opening token for the block (usually LCurly)
+	// Ends with endTok
+	// @Note it would be more common to end after endTok, but the caller's of this function usually require it to end with endTok
+	parseBlock := procedure(endTok := "RCurly") {
+		global.push("parseBlock", [["endTok", endTok]]);
+		if (idx == 1) { stop("parseBlock - start assumption broken"); }
+
+		start := toks[idx-1].start;
+		stmts := [];
+		while (idx <= len && !cur_tok().is(endTok)) {
+			stmts += [parseStmt()];
+		}
+		if (idx > len) { compileErr("Unexpected End of File. Expected Block to end with " + endTok, start, toks[len].end); }
+		block := astNode("Block", start, cur_tok().end, om, stmts);
+
+		if (!cur_tok().is(endTok)) { stop("parseBlock - end assumption broken"); }
+		global.pop();
+		return block;
+	};
+
+	// Parses a list of argument declarations (e.g for class/procedure declarations)
+	// Starts wth toks[idx-1] being the starting delimiter for the argList (usually LParan)
+	// Ends after endTok
+	parseArgList := procedure(endTok := "RParan") {
+		global.push("parseArgList", [["endTok", endTok]]);
+		if (idx == 1) { stop("parseArgList - start assumption broken"); }
+
+		start := toks[idx-1].start;
+		args := parseCommaSeparated(endTok);
+
+		// Check that arguments are of the correct types && all args have default values after the first argument with default value
+		needsAssignment := false;
+		for (arg in args) {
+			isAssigned := arg.is("Assign");
+			if (needsAssignment && !isAssigned) { compileErr(file, arg.start, arg.end, "The parameter requires a default value, since a parameter before already has a default value"); }
+			needsAssignment := isAssigned;
+
+			// @TODO Instead of putting the token in the error message, the token should be converted to its corresponding character
+			// Since this is a relatively common pattern for error messages in the parser, we should have a function on the token
+			// to convert it to a human readable token.
+			if (!isAssigned && !arg.is("Iden")) { compileErr(file, arg.start, arg.end, "Parameters must be identifiers. Found " + arg.id + " instead."); }
+		}
+
+		global.pop();
+		return astNode("ArgList", start, toks[idx-1].end, om, args);
+	};
+
+	// Starts with toks[idx-2] == "procedure" & t == toks[idx-1]
+	// End with toks[idx-1] == ending "}"
+	parseProc := procedure(t := chop_tok()) {
+		global.push("parseProc", [["t", t.toStr()]]);
+		if (!toks[idx-2].is("Proc") || t != toks[idx-1]) { stop("parseProc: start assumption broken"); }
+
+		start_loc := toks[idx-2].start;
+		proc_format := "'procedure ( <argument>* ) { <body> }'";
+		if (!t.is("LParan")) {
+			compileErr(file, t.start, loc.toStr(start_loc, t.end), "Syntax Error. Procedure-Definitions should have the following format: " + proc_format);
+		}
+		argList := parseArgList();
+		tt := chop_tok();
+		if (!tt.is("LCurly")) {
+			compileErr(file, tt.start, loc.toStr(start_loc, tt.end), "Syntax Error. Procedure-Definitions should have the following format: " + proc_format);
+		}
+		body := parseBlock();
+
+		if (idx > len) {
+			compileErr(file, start_loc, toks[-1].end, "Syntax Error. Procedure-Definitions should have the following format: " + proc_format);
+		}
+		end_loc := chop_tok().end;
+		res := astNode("Proc", start_loc, end_loc, om, [argList, body]);
+
+		// global.p("parsed proc:\n" + res.dumpToStr(1));
+		if (!toks[idx-1].is("RCurly")) { stop("parseProc: end assumption broken"); }
+		global.pop();
+		return res;
+	};
+
+	// Starts with toks[idx-1] == "if"
+	// Ends with toks[idx-1] == "}"
+	parseIf := procedure() {
+		global.push("parseIf");
+		if_form := "if (<cond>) { <body> }";
+		if (!toks[idx-1].is("If")) { stop("parseIf: start assumption broken"); }
+		start_loc := toks[idx-1].start;
+
+		if (!chop_tok().is("LParan")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: If-Satements should have the following form: " + if_form); }
+		cond := parseExprWithEndTok(chop_tok(), ["RParan"]);
+		if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: If-Satements should have the following form: " + if_form); }
+
+		body := parseBlock();
+
+		next := chop_tok();
+		end_loc := next.end;
+		if (!toks[idx-1].is("RCurly")) { stop("parseIf: end assumption broken"); }
+		global.pop();
+
+		return astNode("If", start_loc, end_loc, om, [cond, body]);
+	};
+
+	// Starts with toks[idx-1] == "Else"
+	// Ends with toks[idx-1] == "}"
+	parseElse := procedure() {
+		global.push("parseElse");
+		else_form := "else (if (<cond>))* { <body> }";
+		if (!toks[idx-1].is("Else")) { stop("parseElse: start assumption broken"); }
+		start_loc := toks[idx-1].start;
+
+		cond := om;
+		if (cur_tok().is("If")) {
+			chop_tok();
+			if (!chop_tok().is("LParan")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: Else-Satements should have the following form: " + else_form); }
+			cond := [parseExprWithEndTok(chop_tok(), ["RParan"])];
+		}
+
+		if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: Else-Satements should have the following form: " + else_form); }
+		body := parseBlock();
+
+		next := chop_tok();
+		end_loc := next.end;
+		args := [cond, body];
+		if (cond == om) { args := [body]; }
+
+		if (!toks[idx-1].is("RCurly")) { stop("parseElse: end assumption broken"); }
+		global.pop();
+		return astNode("Else", start_loc, end_loc, om, args);
+	};
+
+	parseMatch := procedure() {
+		t := cur_tok();
+		compileErr(file, t.start, t.end, "`parseMatch` is not yet implemented");
+	};
+
+	parseSwitch := procedure() {
+		t := cur_tok();
+		compileErr(file, t.start, t.end, "`parseSwitch` is not yet implemented");
+	};
+
+	parseTry := procedure() {
+		t := cur_tok();
+		compileErr(file, t.start, t.end, "`parseTry` is not yet implemented");
+	};
+
+	// Starts with toks[idx-1] == "Class"
+	// Ends with toks[idx-1] == "}"
+	parseClass := procedure() {
+		global.push("parseClass");
+		if (!toks[idx-1].is("Class")) { stop("parseClass: start assumption broken"); }
+
+		start_loc := toks[idx-1].start;
+		class_format := 'class <name> (<arg>*) { <attributes and methods> }';
+		if (idx + 5 > len) {
+			compileErr(file, toks[idx-1].start, toks[-1].end, "Invalid end of file. Class-Declarations should have the following format: " + class_format);
+		}
+		name := chop_tok();
+		if (!chop_tok().is("LParan")) {
+			compileErr(file, toks[idx-1].start, loc.toStr(file, name.start, cur_tok().start), "Syntax Error. Class-Declarations should have the following format: " + class_format);
+		}
+		argList := parseArgList();
+		if (!chop_tok().is("LCurly")) {
+			compileErr(file, toks[idx-1].start, loc.toStr(file, name.start, cur_tok().start), "Syntax Error. Class-Declarations should have the following format: " + class_format);
+		}
+		stmts := [];
+		while (idx <= len && !cur_tok().is("RCurly")) {
+			stmts += [parseStmt({["Static", [] |=> parseStaticBlock()]}, {["Class", "Class-Declarations inside of class declarations are not allowed"]})];
+		}
+		if (idx > len) {
+			compileErr(file, toks[-1].end, "class " + class_name + "(...) {... ", "Unclosed Curly Braces in Declaration of '" + class_name + "' class");
+		}
+		end_loc := chop_tok().end;
+
+		if (!toks[idx-1].is("RCurly")) { stop("parseclass: end assumption broken"); }
+		global.pop();
+		return astNode("Class", start_loc, end_loc, class_name, [argList, stmts]);
+	};
+
+	// Call with toks[idx-1] == "Static"
+	// Ends with toks[idx-1] == "}"
+	parseStaticBlock := procedure() {
+		global.push("parseStaticBlock");
+		if (!toks[idx-1].is("Static")) { stop("parseStaticBlock: start assumption broken"); }
+
+		start_loc := toks[idx-1].start;
+		if (idx > len || !chop_tok().is("LCurly")) {
+			compileErr(file, start_loc, "static", "Syntax Error: Expected '{ ... }' after `static` keyword.");
+		}
+		stmts := [];
+		while (idx <= len && !cur_tok().is("RCurly")) {
+			stmts += [parseStmt({}, {["Class", "Class-Declarations inside of class declarations are not allowed"]})];
+		}
+		if (idx > len){
+			compileErr(file, start_loc, toks[-1].end, "Syntax Error: Unclosed Curly Brace in static-block");
+		}
+		end_loc := chop_tok().end;
+
+		if (!toks[idx-1].is("RCurly")) { stop("parseStaticBlock: end assumption broken"); }
+		global.pop();
+		return astNode("Static", start_loc, end_loc, om, stmts);
+	};
+
+	parseScan := procedure() {
+		t := cur_tok();
+		compileErr(file, t.start, t.end, "`parseScan` is not yet implemented");
+	};
+
+	parseFor := procedure() {
+		global.push("parseFor");
+		for_form := "for (<var> in <collection>) { <body> }";
+		if (!toks[idx-1].is("For")) { stop("parseFor: start assumption broken"); }
+		start_loc := toks[idx-1].start;
+
+		if (!chop_tok().is("LParan")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: For-Satements should have the following form: " + for_form); }
+		var := parsePrimary(chop_tok());
+		if (!var.is("Iden")) { compileErr(file, start_loc, var.end, "Only identifiers are allowed as variables in for-loops. Found '" + var.id + "' instead."); }
+
+		if (!chop_tok().is("In")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: For-Satements should have the following form: " + for_form); }
+		collection := parseExprWithEndTok(chop_tok(), ["RParan"]);
+		if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: For-Satements should have the following form: " + for_form); }
+
+		body := parseBlock();
+
+		next := chop_tok();
+		end_loc := next.end;
+		if (!toks[idx-1].is("RCurly")) { stop("parseFor: end assumption broken"); }
+		global.pop();
+		return astNode("For", start_loc, end_loc, var, [collection, body]);
+	};
+
+	parseWhile := procedure() {
+		global.push("parseWhile");
+		while_form := "while (<cond>) { <body> }";
+		if (!toks[idx-1].is("While")) { stop("parseWhile: start assumption broken"); }
+		start_loc := toks[idx-1].start;
+
+		if (!chop_tok().is("LParan")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: While-Satements should have the following form: " + while_form); }
+		cond := parseExprWithEndTok(chop_tok(), ["RParan"]);
+		if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: While-Satements should have the following form: " + while_form); }
+
+		body := parseBlock();
+
+		next := chop_tok();
+		end_loc := next.end;
+		if (!toks[idx-1].is("RCurly")) { stop("parseWhile: end assumption broken"); }
+		global.pop();
+		return astNode("While", start_loc, end_loc, om, [cond, body]);
+	};
+
+	parseDoWhile := procedure() {
+		global.push("parseDoWhile");
+		dowhile_form := "do { <body> } while (<cond>);";
+		if (!toks[idx-1].is("Do")) { stop("parseDoWhile: start assumption broken"); }
+		start_loc := toks[idx-1].start;
+
+		if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: DoWhile-Satements should have the following form: " + dowhile_form); }
+		body := parseBlock();
+
+		if (!chop_tok().is("While")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: DoWhile-Satements should have the following form: " + dowhile_form); }
+		if (!chop_tok().is("LParan")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: DoWhile-Satements should have the following form: " + dowhile_form); }
+		cond := parseExprWithEndTok(chop_tok(), ["RParan"]);
+		if (!chop_tok().is("SemiColon")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: DoWhile-Satements should have the following form: " + dowhile_form); }
+
+		end_loc := toks[idx-1].end;
+		global.pop();
+		return astNode("DoWhile", start_loc, end_loc, om, [cond, body]);
+	};
+
+	parseCheck := procedure() {
+		t := cur_tok();
+		compileErr(file, t.start, t.end, "`parseCheck` is not yet implemented");
+	};
+
+	parseBacktrack := procedure() {
+		t := cur_tok();
+		compileErr(file, t.start, t.end, "`parseBacktrack` is not yet implemented");
+	};
+
+	// Call with the cur_tok() equal to the beginning of the first comma-separated element
+	// Returns with cur_tok() equal to the token after endTokType
+	// parsingF should have the following signature: (token, [..endTokTypes])
+	parseCommaSeparated := procedure(endTokType, parsingF := "exprOrAssign") {
+		global.push("parseCommaSeparated", [["endTokType", endTokType], ["parsingF", parsingF]]);
+		if (toks[idx-1].id notin {"LCurly", "LBrack", "LParan"}) { stop("parseCommaSeparated: start assumption broken"); }
+
+		start_loc := cur_tok().start; // For error message
+		res := [];
+		do {
+			if (idx > len) {
+				compileErr(file, start_loc, toks[-1].end, "Unexpected End of File. Expected " + endTokType.displayStr() + " at the end of this comma-separated list");
+			}
+			t := chop_tok();
+			if (t.is(endTokType)) {
+				break;
+			}
+			x := om;
+			if (parsingF == "exprOrAssign") { x := parseExprOrAssignWithEndTok(t, ["Comma", endTokType]); }
+			else if (parsingF == "collectionOrPrimary") { x := parseCollectionOrPrimary(t, ["Comma", endTokType]); }
+			else { stop("Unexpected input for parseCommaSeparated. parsingF is not expected to be '" + parsingF + "'"); }
+			res += [x];
+		} while (!toks[idx-1].is(endTokType));
+
+		if (!toks[idx-1].is(endTokType)) { stop("parseCommaSeparated: end assumption broken"); }
+		global.pop();
+		return res;
+	};
+
+	// Call with cur_tok() equal to the first element in parantheses
+	// Returns with cur_tok() equal to the token after the closing parantheses
+	parseParan := procedure() {
+		global.push("parseParan");
+		if (!toks[idx-1].is("LParan")) { stop("parseParan: start assumption borken"); }
+
+		t := toks[idx-1];
+		res := parseExprWithEndTok(chop_tok(), ["RParan"]);
+		res.start := t.start;
+		res.end := toks[idx-1].end;
+
+		if (res.end != toks[idx-1].end) { stop("parseParan: end assumption broken"); }
+		global.pop();
+		return res;
+	};
+
+	// Starts with t == toks[idx-1]
+	// Ends with toks[idx-1] in endTokTypes
+	// Parses Collections or Ranges
+	parseCollectionOrPrimary := procedure(t := chop_tok(), endTokTypes := ["Comma"]) {
+		global.push("parseCollectionOrPrimary", [["t", t.toStr()], ["endTokTypes", listToStr(endTokTypes)]]);
+		if (toks[idx-1] != t) { stop("parseCollectionOrPrimary: start assumption broken"); }
+
+		res := om;
+		switch {
+			case t.is("LBrack"): res := parseList();
+			case t.is("LCurly"): res := parseSet();
+			default:
+				res := parseExprWithEndTok(t, endTokTypes + ["DotDot"]);
+				if (toks[idx-1].is("DotDot")) {
+					x := om;
+					if (cur_tok() notin endTokTypes) { x := parseExprWithEndTok(chop_tok(), endTokTypes); }
+					else { chop_tok(); }
+					res := astNode("Range", res.start, toks[idx-1].end, om, [res, x]);
+				}
+				this.idx -= 1;
+		}
+		if (chop_tok().id notin endTokTypes) {
+			tt := toks[idx-1];
+			compileErr(file, tt.start, tt.end, "Unexpected Token " + tt.displayStr() + ". Expected a " + join(endTokTypes, " or ") + " instead");
+		}
+
+		if (toks[idx-1].id notin endTokTypes) { stop("parseCollectionOrPrimary: end assumption broken"); }
+		global.pop();
+		return res;
+	};
+
+	// Starts with toks[idx-1] == "{"
+	// Ends with toks[idx-1] == "}"
+	parseSet := procedure() {
+		global.push("parseSet");
+		if (!toks[idx-1].is("LCurly")) { stop("parseSet: start assumption broken"); }
+
+		start_loc := toks[idx-1].start;
+		items := parseCommaSeparated("RCurly", "collectionOrPrimary");
+
+		if (!toks[idx-1].is("RCurly")) { stop("parseSet: end assumption broken"); }
+		global.pop();
+		return astNode("Set", start_loc, toks[idx-1].end, om, items);
+	};
+
+	// Starts with toks[idx-1] == "["
+	// Ends with toks[idx-1] == "]"
+	parseList := procedure() {
+		global.push("parseList");
+		if (!toks[idx-1].is("LBrack")) { stop("parseList: start assumption broken"); }
+
+		start_loc := toks[idx-1].start;
+		items := parseCommaSeparated("RBrack", "collectionOrPrimary");
+		if (!toks[idx-1].is("RBrack")) { stop("parseList: end assumption broken"); }
+		global.pop();
+		return astNode("List", start_loc, toks[idx-1].end, om, items);
+	};
+
+	// Starts with t == toks[idx-1]
+	// Ends with cur_tok() being the next token after the primary value
+	// @Note: Primary means either a literal or a paranthesized expression
+	parsePrimary := procedure(t := chop_tok()) {
+		global.push("parsePrimary", [["t", t.toStr()]]);
+		if (toks[idx-1] != t) {
+			global.p("t: " + t.displayStr());
+			global.p("toks[idx-1]: " + toks[idx-1].displayStr());
+			stop("parsePrimary: start assumption broken");
+		}
+
+		res := om;
+		switch {
+			case t.className == "astNode": res := t;
+			case t.is("LParan"): res := parseParan();
+			case t.is("LCurly"): res := parseSet();
+			case t.is("LBrack"): res := parseList();
+			case t.is("Str"): res := astNode("Str", t.start, t.end, t.data);
+			case t.is("Int"): res := astNode("Int", t.start, t.end, t.data);
+			case t.is("Float"): res := astNode("Float", t.start, t.end, t.data);
+			case t.is("Iden"): res := astNode("Iden", t.start, t.end, t.data);
+			default:
+				if (!t.isPrimary()) {
+					printErr("parsePrimary should only fail if the token isn't a primary. The token " + t.toStr() + " is apparently a primary though.");
+				}
+				compileErr(file, t.start, t.end, "Expected to parse a primary. Received '" + t.toStr() + "' instead");
+		}
+
+		if (toks[idx-1].end != res.end) { stop("parsePrimary: end assumption broken"); }
+		global.pop();
+		return res;
+	};
+
+	// Starts with cur_tok() being the unary operator
+	// Ends with cur_tok() being the token after the expression
+	parseUnary := procedure() {
+		global.push("parseUnary");
+		if (cur_tok().id notin global.unaryOps) { stop("parseUnary: start assumption broken"); }
+
+		unaryTok := chop_tok();
+		expr := parsePrimary();
+
+		if (expr.end != toks[idx-1].end) { stop("parseUnary: end assumption broken"); }
+		global.pop();
+		return astNode("UnaryOp", unaryTok.start, expr.end, unaryTok.id, [expr]);
+	};
+
+	// Starts with cur_tok() being the token after lhs
+	// Ends with cur_tok() being the token after the result
+	parseBinOps := procedure(lhs, min_prec := 0) {
+		global.push("parseBinOps", [["lhs", lhs.toStr()], ["min_prec", min_prec]]);
+		if (lhs.end != toks[idx-1].end) { stop("parseBinOps: start assumption broken"); }
+
+		lookahead := cur_tok();
+		while (lookahead != om && global.binOpPrecs[lookahead.id] != om && global.binOpPrecs[lookahead.id] >= min_prec) {
+			if (lhs.className() == "token") { lhs := parsePrimary(lhs); }
+			bin_op := chop_tok();
+			prec := global.binOpPrecs[lookahead.id];
+			rhs := parsePrimary();
+			lookahead := cur_tok();
+			if (lookahead != om) {
+				next_prec := global.binOpPrecs[lookahead.id];
+				while (next_prec != om && (next_prec > prec || (next_prec == prec &&  global.isRightAssoc(lookahead.id)))) {
+					next_min_prec := prec;
+					if (next_prec > prec) {
+						next_min_prec += 1;
+					}
+					rhs := parseBinOps(rhs, next_min_prec);
+					lookahead := cur_tok();
+					if (lookahead == om) {
+						break;
+					}
+					next_prec := global.binOpPrecs[lookahead.id];
+				}
+			}
+			lhs := astNode("BinOp", lhs.start, rhs.end, bin_op.id, [lhs, rhs]);
+		}
+
+		if (lhs.end != toks[idx-1].end) { stop("parseBinOps: end assumption broken"); }
+		global.pop();
+		return lhs;
+	};
+}

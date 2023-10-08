@@ -1,0 +1,204 @@
+load("util.stlx");
+load("ir.stlx");
+
+// @Note: These should all be global variables, but adding these to a class' static section, uses too much memory for setlX' stack apparently
+class irToCVars() {
+	labelCounter := counter("L");
+	structPrefix := "__struct_";
+	valStruct    := structPrefix + "Value";
+	varPrefix    := "__stlx_";
+	getVarName   := procedure(instr) {
+		if (startsWith(instr.data, varPrefix)) { return instr.data; }
+		else { return varPrefix + instr.data; }
+	};
+	enumPrefix   := procedure(enumName) {
+		return "__enum_" + enumName + "_";
+	};
+}
+
+// @Note: returns an array with 2 values (first the value that can be used in any expression and then a string for statements that need to come before using the first value)
+makeValueStruct := procedure(file, instr, toCVars, cliteral := true) {
+	global.push("makeValueStruct", [["instr", instr.toStr()]]);
+	typeEnum := toCVars.enumPrefix("Type");
+	val := "";
+	var := "";
+	if (cliteral) { val += "(" + toCVars.valStruct + ")"; }
+	// @TODO: Need to create variables for lists/sets and then using that variable as a value
+	match(instr.id) {
+		case "Var":
+			val += toCVars.getVarName(instr);
+		case "Str":
+			// @TODO: Escape certain characters in string
+			val += "{.type = " + typeEnum + "Str" + ", .data = {.s = \"" + instr.data + "\"}}";
+		case "Int":
+			val += "{.type = " + typeEnum + "Int" + ", .data = {.i = " + instr.data + "}}";
+		case "Float":
+			val += "{.type = " + typeEnum + "Float" + ", .data = {.f = " + instr.data + "}}";
+		case "Om":
+			val += "{0}";
+		default:
+			compileErr(file, instr.start, instr.end, "Making a value out of a '" + instr.id + "' is not yet implemented");
+	}
+	global.pop();
+	return [val, var];
+};
+
+irCodeToC := procedure(file, code, varCounter, toCVars) {
+	global.push("irCodeToC", []);
+
+	res := "";
+	st  := stack();
+	for (instr in code) {
+		match (instr.id) {
+			case "And":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'And' to C code is not yet implemented");
+			case "Or":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Or' to C code is not yet implemented");
+			case "Eq":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Eq' to C code is not yet implemented");
+			case "Ge":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Ge' to C code is not yet implemented");
+			case "Le":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Le' to C code is not yet implemented");
+			case "Gt":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Gt' to C code is not yet implemented");
+			case "Lt":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Lt' to C code is not yet implemented");
+			case "In":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'In' to C code is not yet implemented");
+			case "Add":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Add' to C code is not yet implemented");
+			case "Sub":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Sub' to C code is not yet implemented");
+			case "Mul":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Mul' to C code is not yet implemented");
+			case "Div":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Div' to C code is not yet implemented");
+			case "Mod":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Mod' to C code is not yet implemented");
+			case "IntDiv":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'IntDiv' to C code is not yet implemented");
+			case "Exp":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Exp' to C code is not yet implemented");
+			case "CartProd":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'CartProd' to C code is not yet implemented");
+			case "AddCollBin":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'AddCollBin' to C code is not yet implemented");
+			case "MulCollBin":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'MulCollBin' to C code is not yet implemented");
+			case "AddColl":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'AddColl' to C code is not yet implemented");
+			case "MulColl":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'MulColl' to C code is not yet implemented");
+			case "Not":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Not' to C code is not yet implemented");
+			case "Neg":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Neg' to C code is not yet implemented");
+			case "Len":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Len' to C code is not yet implemented");
+			case "Assign":
+				var := toCVars.getVarName(st.pop());
+				val := st.pop();
+				assign := toCVars.valStruct + " " + var + " = ";
+				[x, y] := makeValueStruct(file, val, toCVars, false);
+				assign += x + ";\n";
+				res += y;
+				res += assign;
+			case "Ret":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Ret' to C code is not yet implemented");
+			case "Range":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Range' to C code is not yet implemented");
+			case "Index":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Index' to C code is not yet implemented");
+			case "Property":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Property' to C code is not yet implemented");
+			case "Call":
+				var    := toCVars.getVarName(st.pop());
+				args   := [];
+				arglen := st.pop().data;
+				while (arglen > 0) {
+					args   += [st.pop()];
+					arglen -= 1;
+				}
+				ret  := varCounter.get();
+				st.push(inst("Var", ret, instr.start, instr.end));
+				call := toCVars.valStruct + " " + ret + " = ";
+				call += var + "(";
+				for (i in {1..#args}) {
+					if (i != 1) { call += ", "; }
+					[val, var] := makeValueStruct(file, args[i], toCVars);
+					call += val;
+					res  += var;
+				}
+				call += ");\n";
+				res  += call;
+			case "NativeCall":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'NativeCall' to C code is not yet implemented");
+			case "Label":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Label' to C code is not yet implemented");
+			case "CondJmp":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'CondJmp' to C code is not yet implemented");
+			case "Jmp":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Jmp' to C code is not yet implemented");
+			case "Set":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Set' to C code is not yet implemented");
+			case "List":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'List' to C code is not yet implemented");
+			case "Proc":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Proc' to C code is not yet implemented");
+			case "Block":
+				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Block' to C code is not yet implemented");
+			default:
+				st.push(instr);
+		}
+	}
+
+	global.pop();
+	return res;
+};
+
+// @TODO
+irToC := procedure(file, ir) {
+	// @TODO: Deal with procedures
+	global.push("irToC", []);
+	res := "";
+
+	toCVars    := irToCVars();
+	varCounter := counter(toCVars.varPrefix);
+
+	res += "#include <stdio.h>\n\n";
+
+	typeEnumPrefix := toCVars.enumPrefix("Type");
+	res += "typedef enum {\n";
+	res += "\t" + typeEnumPrefix + "Om = 0,\n";
+	res += "\t" + typeEnumPrefix + "Int,\n";
+	res += "\t" + typeEnumPrefix + "Float,\n";
+	res += "\t" + typeEnumPrefix + "Str,\n";
+	res += "} " + toCVars.structPrefix + "Type;\n";
+
+	res += "typedef struct {\n";
+	res += "\t" + toCVars.structPrefix + "Type type;\n";
+	res += "\tunion {\n";
+	res += "\t\tvoid  *x;\n";
+	res += "\t\tint    i;\n";
+	res += "\t\tfloat  f;\n";
+	res += "\t\tchar  *s;\n";
+	res += "\t} data;\n";
+	res += "} " + toCVars.valStruct + ";\n";
+	res += "\n";
+
+	res += toCVars.valStruct + " " + toCVars.varPrefix + "print" + "(";
+	res += toCVars.valStruct + " str" + ")\n{\n";
+	// @TODO: Check type of value
+	res += "\tputs(str.data.s);\n";
+	res += "\treturn " + makeValueStruct(file, inst("Om", om, 0, 0), toCVars)[1] + ";\n";
+	res += "}\n\n";
+
+	res += "int main(void)\n{\n";
+	res += addIndents(irCodeToC(file, ir.code, varCounter, toCVars), 1);
+	res += "\treturn 0;\n";
+	res += "}\n";
+
+	global.pop();
+	return res;
+};
