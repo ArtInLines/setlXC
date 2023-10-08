@@ -336,7 +336,7 @@ class loc(file, row, col) {
 				lines[1] := lines[1][start.col..end.col];
 			} else {
 				lines[1] := lines[1][start.col..];
-				lines[-1] := lines[-1][..end.col];
+				lines[#lines] := lines[#lines][..end.col];
 			}
 			global.pop();
 			return join(lines, "\n");
