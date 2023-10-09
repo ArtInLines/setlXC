@@ -69,8 +69,9 @@ def main(params: [str]):
 			total += 1
 			p      = subprocess.run(["run.bat", t.file, "-d"], capture_output=True)
 			stdout = p.stdout.decode() + "\n" + p.stderr.decode()
-			stdout = stdout.strip()
+			stdout = "".join(stdout.split("\r")).strip()
 			exp    = t.out.strip()
+
 			if (stdout == exp):
 				succ += 1
 				print("\033[32mTest '" + t.file + "' successful!\033[0m")
@@ -88,7 +89,9 @@ def main(params: [str]):
 		if record:
 			p      = subprocess.run(["run.bat", file, "-d"], capture_output=True)
 			t      = testcase(file)
-			t.out  = (p.stdout.decode() + "\n" + p.stderr.decode()).strip()
+			stdout = p.stdout.decode() + "\n" + p.stderr.decode()
+			stdout = "".join(stdout.split("\r")).strip()
+			t.out  = stdout
 			tests.append(t)
 			print("Test '" + file + "' recorded.")
 		else:
