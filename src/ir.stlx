@@ -206,17 +206,21 @@ codegenBlock := procedure(file, ast) {
 				ir.code   += body.code;
 				ir.procs  += body.procs;
 			case "Else":
-				cond := om;
-				body := om;
+				prevLabel := ir.code[#ir.code];
+				ir.code   := ir.code[1..#ir.code-1];
+				cond      := om;
+				body      := om;
 				if (#node.args == 2) {
 					[cond, body] := node.args;
 				} else {
 					body := node.args[1];
 				}
-				body := codegenBlock(file, body);
+				body      := codegenBlock(file, body);
+				label     := global.labelCounter.get();
+				body.code += [inst("Label", label, node.end, node.end)];
+				ir.code   += [inst("Jmp", label, node.start, node.end)];
+				ir.code   += [prevLabel];
 				if (cond != om) {
-					label     := global.labelCounter.get();
-					body.code += [inst("Label", label, node.end, node.end)];
 					ir.code   += codegenExpr(file, cond);
 					ir.code   += [inst("CondJmp", label, node.start, node.end)];
 				}

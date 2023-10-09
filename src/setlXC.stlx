@@ -11,12 +11,15 @@ compile := procedure(file) {
 	toks := lexer(file, str).lex();
 	ast  := parser(file, toks).parse();
 	ast  := addImports(file, ast)[1];
-	// print("AST:"); // @Cleanup
-	// print(ast.dumpToStr(global.debug));
-
+	if (global.fullDebug) {
+		print("AST:"); // @Cleanup
+		print(ast.dumpToStr(global.debug));
+	}
 	ir   := codegenBlock(file, ast);
-	// print("\nIR:"); // @Cleanup
-	// print(ir.displayStr());
+	if (global.fullDebug) {
+		print("\nIR:"); // @Cleanup
+		print(ir.displayStr());
+	}
 
 	c := irToC(file, ir);
 	writeFile("../out.c", c); // @TODO: Provide parameter for name of output file
@@ -29,15 +32,15 @@ main := procedure(params) {
 		printErr("Not enough arguments were provided.");
 		printErr();
 		printErr("Usage:");
-		printErr("setlX setlXC.stlx -p <filename> [-d]");
+		printErr("setlX setlXC.stlx -p <filename> [-dd]");
 		printErr("The flag '-d'  is optional and enables debugging mode.      It prints some useful debugging information.");
+		printErr("The flag '-dd' is optional and enables full debugging mode. It prints alongside the usual debug info also the AST and IR.");
 		return;
 	}
 
-	fullDebug := false;
 	if (#params >= 2 && params[2][..2] == "-d") {
 		global.debug := true;
-		if (params[2][3] == "d") { fullDebug := true; }
+		if (params[2][3] == "d") { global.fullDebug := true; }
 	}
 
 	global.push("main", [["params", params]]);

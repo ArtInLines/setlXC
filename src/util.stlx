@@ -54,6 +54,7 @@ class stackNode(n, args) {
 
 class global() {
 	static {
+		fullDebug := false;
 		debug := false;
 		p     := procedure(s) {
 			if (global.debug) { print(s); }

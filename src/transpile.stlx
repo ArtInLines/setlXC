@@ -145,7 +145,7 @@ irCodeToC := procedure(file, code, varCounter, toCVars) {
 				res += var;
 				res += "if (!" + val + ".data.i" + ") goto " + instr.data + ";\n";
 			case "Jmp":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Jmp' to C code is not yet implemented");
+				res += "goto " + instr.data + ";\n";
 			case "Set":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Set' to C code is not yet implemented");
 			case "List":
