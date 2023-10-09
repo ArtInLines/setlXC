@@ -1,5 +1,7 @@
-if (true) {
+if (false) {
+	print("Wrong");
+} else if (true) {
 	print("Hello");
 } else {
-	print("Bye");
+	print("Also Wrong");
 }

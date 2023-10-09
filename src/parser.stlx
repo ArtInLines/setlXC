@@ -352,7 +352,7 @@ class parser(file_path, toks) {
 		if (cur_tok().is("If")) {
 			chop_tok();
 			if (!chop_tok().is("LParan")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: Else-Satements should have the following form: " + else_form); }
-			cond := [parseExprWithEndTok(chop_tok(), ["RParan"])];
+			cond := parseExprWithEndTok(chop_tok(), ["RParan"]);
 		}
 
 		if (!chop_tok().is("LCurly")) { compileErr(file, start_loc, toks[idx-1].end, "Syntax Error: Else-Satements should have the following form: " + else_form); }
