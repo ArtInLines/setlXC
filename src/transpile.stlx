@@ -18,6 +18,7 @@ class irToCVars() {
 // @Note: returns an array with 2 values (first the value that can be used in any expression and then a string for statements that need to come before using the first value)
 makeValueStruct := procedure(file, instr, toCVars, cliteral := true) {
 	global.push("makeValueStruct", [["instr", instr.toStr()]]);
+	if (instr.className() != "inst") { stop("makeValueStruct Start Assumption broken"); }
 	typeEnum := toCVars.enumPrefix("Type");
 	val := "";
 	var := "";
@@ -70,13 +71,69 @@ irCodeToC := procedure(file, code, varCounter, toCVars) {
 			case "In":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'In' to C code is not yet implemented");
 			case "Add":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Add' to C code is not yet implemented");
+				op2 := st.pop();
+				op1 := st.pop();
+				tmpVar := varCounter.get();
+				st.push(inst("Var", tmpVar, instr.start, instr.end));
+				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
+				[val, var] := makeValueStruct(file, op1, toCVars);
+				res   += var;
+				opRes += "__add_values(";
+				opRes += val;
+				[val, var] := makeValueStruct(file, op2, toCVars);
+				res   += var;
+				opRes += ", ";
+				opRes += val;
+				opRes += ");\n";
+				res   += opRes;
 			case "Sub":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Sub' to C code is not yet implemented");
+				op2 := st.pop();
+				op1 := st.pop();
+				tmpVar := varCounter.get();
+				st.push(inst("Var", tmpVar, instr.start, instr.end));
+				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
+				[val, var] := makeValueStruct(file, op1, toCVars);
+				res   += var;
+				opRes += "__sub_values(";
+				opRes += val;
+				[val, var] := makeValueStruct(file, op2, toCVars);
+				res   += var;
+				opRes += ", ";
+				opRes += val;
+				opRes += ");\n";
+				res   += opRes;
 			case "Mul":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Mul' to C code is not yet implemented");
+				op2 := st.pop();
+				op1 := st.pop();
+				tmpVar := varCounter.get();
+				st.push(inst("Var", tmpVar, instr.start, instr.end));
+				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
+				[val, var] := makeValueStruct(file, op1, toCVars);
+				res   += var;
+				opRes += "__mul_values(";
+				opRes += val;
+				[val, var] := makeValueStruct(file, op2, toCVars);
+				res   += var;
+				opRes += ", ";
+				opRes += val;
+				opRes += ");\n";
+				res   += opRes;
 			case "Div":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Div' to C code is not yet implemented");
+				op2 := st.pop();
+				op1 := st.pop();
+				tmpVar := varCounter.get();
+				st.push(inst("Var", tmpVar, instr.start, instr.end));
+				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
+				[val, var] := makeValueStruct(file, op1, toCVars);
+				res   += var;
+				opRes += "__div_values(";
+				opRes += val;
+				[val, var] := makeValueStruct(file, op2, toCVars);
+				res   += var;
+				opRes += ", ";
+				opRes += val;
+				opRes += ");\n";
+				res   += opRes;
 			case "Mod":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Mod' to C code is not yet implemented");
 			case "IntDiv":
@@ -172,33 +229,8 @@ irToC := procedure(file, ir) {
 	toCVars    := irToCVars();
 	varCounter := counter(toCVars.varPrefix);
 
-	res += "#include <stdio.h>\n\n";
-
-	typeEnumPrefix := toCVars.enumPrefix("Type");
-	res += "typedef enum {\n";
-	res += "\t" + typeEnumPrefix + "Om = 0,\n";
-	res += "\t" + typeEnumPrefix + "Int,\n";
-	res += "\t" + typeEnumPrefix + "Float,\n";
-	res += "\t" + typeEnumPrefix + "Str,\n";
-	res += "} " + toCVars.structPrefix + "Type;\n";
-
-	res += "typedef struct {\n";
-	res += "\t" + toCVars.structPrefix + "Type type;\n";
-	res += "\tunion {\n";
-	res += "\t\tvoid  *x;\n";
-	res += "\t\tint    i;\n";
-	res += "\t\tfloat  f;\n";
-	res += "\t\tchar  *s;\n";
-	res += "\t} data;\n";
-	res += "} " + toCVars.valStruct + ";\n";
+	res += "#include \"setlX.c\"\n";
 	res += "\n";
-
-	res += toCVars.valStruct + " " + toCVars.varPrefix + "print" + "(";
-	res += toCVars.valStruct + " str" + ")\n{\n";
-	// @TODO: Check type of value
-	res += "\tputs(str.data.s);\n";
-	res += "\treturn " + makeValueStruct(file, inst("Om", om, 0, 0), toCVars)[1] + ";\n";
-	res += "}\n\n";
 
 	res += "int main(void)\n{\n";
 	res += addIndents(irCodeToC(file, ir.code, varCounter, toCVars), 1);

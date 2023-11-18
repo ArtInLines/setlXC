@@ -129,14 +129,27 @@ class parser(file_path, toks) {
 	parseExprOrAssignWithEndTok := procedure(t, endTokTypes) {
 		if (!isList(endTokTypes)) { endTokTypes := [endTokTypes]; }
 		global.push("parseExprOrAssignWithEndTok", [["t", t.toStr()], ["endTokTypes", listToStr(endTokTypes)]]);
-		if (!t.isPrimary()) { stop("parseExprOrAssignWithEndTok - start assumption broken"); }
 
+		isUnaryOp := t.id in global.unaryOps;
+		isBinOp   := t.id in domain(global.binOpPrecs);
+		if (!t.isPrimary() && !isUnaryOp && !isBinOp) { print(global.st.toStr()); stop("parseExprOrAssignWithEndTok - start assumption broken"); }
+
+		print("t: " + t.toStr() + ", endTokTypes: " + listToStr(endTokTypes));
+		if (isUnaryOp) {
+			this.idx -= 1;
+			return parseUnary();
+		} else if (isBinOp) {
+			return parseBinOps(t);
+		}
+
+		print("t: " + t.toStr() + ", endTokTypes: " + listToStr(endTokTypes));
 		res := parseExprWithEndTok(t, endTokTypes + global.assignToks);
 		if (toks[idx-1].id in global.assignToks) {
 			assignTok := toks[idx-1];
 			if (res.id notin {"Iden", "Index", "Property"}) {
 				compileErr(file, res.start, assignTok.end, "Expected an identifier before assignment. Found a " + res.displayStr() + " instead");
 			}
+			print("t: " + t.toStr() + ", endTokTypes: " + listToStr(endTokTypes));
 			val := parseExprWithEndTok(chop_tok(), endTokTypes);
 			if (assignTok.id != "Assign") {
 				bin_op_typ := assignTok.id[..-7]; // -7 comes from `- #"Assign" - 1`
@@ -625,8 +638,8 @@ class parser(file_path, toks) {
 	parsePrimary := procedure(t := chop_tok()) {
 		global.push("parsePrimary", [["t", t.toStr()]]);
 		if (toks[idx-1] != t) {
-			global.p("t: " + t.displayStr());
-			global.p("toks[idx-1]: " + toks[idx-1].displayStr());
+			global.p("t: " + t.toStr());
+			global.p("toks[idx-1]: " + toks[idx-1].toStr());
 			stop("parsePrimary: start assumption broken");
 		}
 
@@ -656,11 +669,10 @@ class parser(file_path, toks) {
 
 	// Starts with cur_tok() being the unary operator
 	// Ends with cur_tok() being the token after the expression
-	parseUnary := procedure() {
+	parseUnary := procedure(unaryTok := chop_tok()) {
 		global.push("parseUnary");
-		if (cur_tok().id notin global.unaryOps) { stop("parseUnary: start assumption broken"); }
+		if (unaryTok.id notin global.unaryOps) { stop("parseUnary: start assumption broken"); }
 
-		unaryTok := chop_tok();
 		expr := parsePrimary();
 
 		if (expr.end != toks[idx-1].end) { stop("parseUnary: end assumption broken"); }
@@ -679,7 +691,12 @@ class parser(file_path, toks) {
 			if (lhs.className() == "token") { lhs := parsePrimary(lhs); }
 			bin_op := chop_tok();
 			prec := global.binOpPrecs[lookahead.id];
-			rhs := parsePrimary();
+
+			rhsTok := chop_tok();
+			rhs := om;
+			if (rhsTok.id in global.unaryOps) { rhs := parseUnary(rhsTok); }
+			else { rhs := parsePrimary(rhsTok); }
+
 			lookahead := cur_tok();
 			if (lookahead != om) {
 				next_prec := global.binOpPrecs[lookahead.id];

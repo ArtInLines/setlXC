@@ -8,7 +8,7 @@ class token(id, start, end, data := om) {
 	className  := procedure() { return "token"; }; // @Cleanup should this really be a procedure?
 	is         := procedure(typ) { return id == typ; };
 	// @Note: Primary values are literals or paranthesized expressions
-	isPrimary  := procedure() { return id in {"Iden", "Str", "Int", "Float", "LParan", "LBrack", "LCurly"}; };
+	isPrimary  := procedure() { return id in {"Iden", "Str", "Int", "Float", "LParan", "LBrack", "LCurly", "True", "False"}; };
 	equals     := procedure(other) { return other != om && id == other.id && start == other.start && end == other.end && data == other.data; };
 	displayStr := procedure() {
 		global.push("token.displayStr", []);
