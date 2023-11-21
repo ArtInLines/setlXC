@@ -132,9 +132,8 @@ class parser(file_path, toks) {
 
 		isUnaryOp := t.id in global.unaryOps;
 		isBinOp   := t.id in domain(global.binOpPrecs);
-		if (!t.isPrimary() && !isUnaryOp && !isBinOp) { print(global.st.toStr()); stop("parseExprOrAssignWithEndTok - start assumption broken"); }
+		if (!t.isPrimary() && !isUnaryOp && !isBinOp) { global.p(global.st.toStr()); stop("parseExprOrAssignWithEndTok - start assumption broken"); }
 
-		print("t: " + t.toStr() + ", endTokTypes: " + listToStr(endTokTypes));
 		if (isUnaryOp) {
 			this.idx -= 1;
 			return parseUnary();
@@ -142,14 +141,12 @@ class parser(file_path, toks) {
 			return parseBinOps(t);
 		}
 
-		print("t: " + t.toStr() + ", endTokTypes: " + listToStr(endTokTypes));
 		res := parseExprWithEndTok(t, endTokTypes + global.assignToks);
 		if (toks[idx-1].id in global.assignToks) {
 			assignTok := toks[idx-1];
 			if (res.id notin {"Iden", "Index", "Property"}) {
 				compileErr(file, res.start, assignTok.end, "Expected an identifier before assignment. Found a " + res.displayStr() + " instead");
 			}
-			print("t: " + t.toStr() + ", endTokTypes: " + listToStr(endTokTypes));
 			val := parseExprWithEndTok(chop_tok(), endTokTypes);
 			if (assignTok.id != "Assign") {
 				bin_op_typ := assignTok.id[..-7]; // -7 comes from `- #"Assign" - 1`
@@ -638,7 +635,6 @@ class parser(file_path, toks) {
 	parsePrimary := procedure(t := chop_tok()) {
 		global.push("parsePrimary", [["t", t.toStr()]]);
 		if (toks[idx-1] != t) {
-			global.p("t: " + t.toStr());
 			global.p("toks[idx-1]: " + toks[idx-1].toStr());
 			stop("parsePrimary: start assumption broken");
 		}
