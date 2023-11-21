@@ -47,6 +47,21 @@ char *__dbg_print_value(__struct_Value val)
 
 }
 
+__struct_Value __neg_value(__struct_Value val)
+{
+	switch (val.type) {
+		case __enum_Type_Om:
+		case __enum_Type_Str:
+			fprintf(stderr, "Error in trying to negate %s\n", __dbg_print_value(val));
+			exit(1);
+		case __enum_Type_Int:
+			return (__struct_Value) { .type = val.type, .data = { .i = -val.data.i }};
+		case __enum_Type_Float:
+			return (__struct_Value) { .type = val.type, .data = { .f = -val.data.f }};
+	}
+	AIL_UNREACHABLE();
+}
+
 __struct_Value __add_values(__struct_Value l, __struct_Value r)
 {
 	switch (l.type) {

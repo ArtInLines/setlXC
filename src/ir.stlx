@@ -70,10 +70,15 @@ codegenExpr := procedure(file, node) {
 		case "BinOp":
 			insts += codegenExpr(file, node.args[1]);
 			insts += codegenExpr(file, node.args[2]);
-			insts += [inst(node.data, om, node.start, node.end)];
+			op    := node.data;
+			if (op == "AddColl" || op == "MulColl") { op += "Bin"; }
+			insts += [inst(op, om, node.start, node.end)];
 		case "UnaryOp":
 			insts += codegenExpr(file, node.args[1]);
-			insts += [inst(node.data, om, node.start, node.end)];
+			op    := node.data;
+			if      (op == "Sub")  { op := "Neg"; }
+			else if (op == "Hash") { op := "Len"; }
+			insts += [inst(op, om, node.start, node.end)];
 		case "Call":
 			for (arg in node.args) {
 				insts += codegenExpr(file, arg);

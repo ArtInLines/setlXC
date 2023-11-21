@@ -153,7 +153,14 @@ irCodeToC := procedure(file, code, varCounter, toCVars) {
 			case "Not":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Not' to C code is not yet implemented");
 			case "Neg":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Neg' to C code is not yet implemented");
+				operand := st.pop();
+				tmpVar  := varCounter.get();
+				st.push(inst("Var", tmpVar, instr.start, instr.end));
+				opRes   := toCVars.valStruct + " " + tmpVar + " = ";
+				[val, var] := makeValueStruct(file, operand, toCVars);
+				res     += var;
+				opRes   += "__neg_value(" + val + ");\n";
+				res     += opRes;
 			case "Len":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Len' to C code is not yet implemented");
 			case "Assign":
