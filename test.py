@@ -67,7 +67,7 @@ def main(params: [str]):
 			if file == t.file:
 				testedFile = True
 			total += 1
-			p      = subprocess.run(["run.bat", t.file, "-d"], capture_output=True)
+			p      = subprocess.run(["run.bat", t.file], capture_output=True)
 			stdout = p.stdout.decode() + "\n" + p.stderr.decode()
 			stdout = "".join(stdout.split("\r")).strip()
 			exp    = t.out.strip()

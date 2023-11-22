@@ -234,9 +234,10 @@ irCodeToC := procedure(file, code, toCVars) {
 				[name, var] := makeValueStruct(file, ret, lenInst, toCVars);
 				res     += var;
 			case "Assign":
-				out := toCVars.getVarName(st.pop());
-				val := st.pop();
-				res += toCVars.valStruct + " " + out + " = " + val.data + ";\n";
+				out      := toCVars.getVarName(st.pop());
+				val      := st.pop();
+				[_, var] := makeValueStruct(file, out, val, toCVars);
+				res      += var;
 			case "Ret":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Ret' to C code is not yet implemented");
 			case "Range":
