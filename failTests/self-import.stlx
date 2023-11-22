@@ -1,1 +1,1 @@
-load("self-import.stlx");
+print(load("self-import.stlx"));

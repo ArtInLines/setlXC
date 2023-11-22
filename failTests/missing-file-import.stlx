@@ -1,1 +1,1 @@
-load("this_file_does_not_exist.stlx");
+print(load("this_file_does_not_exist.stlx"));

@@ -76,6 +76,7 @@ def main(params: [str]):
 				succ += 1
 				print("\033[32mTest '" + t.file + "' successful!\033[0m")
 			elif (record):
+				t.out = stdout + "\n"
 				print("Test '" + t.file + "' re-recorded.")
 			else:
 				print("\033[31mTest '" + t.file + "' failed:\033[0m")
@@ -87,7 +88,7 @@ def main(params: [str]):
 
 	if file != None and not testedFile:
 		if record:
-			p      = subprocess.run(["run.bat", file, "-d"], capture_output=True)
+			p      = subprocess.run(["run.bat", file], capture_output=True)
 			t      = testcase(file)
 			stdout = p.stdout.decode() + "\n" + p.stderr.decode()
 			stdout = "".join(stdout.split("\r")).strip()

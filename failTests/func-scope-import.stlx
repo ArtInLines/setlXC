@@ -2,4 +2,4 @@ main := procedure() {
 	load("illegal_scope_for_load.stlx");
 };
 
-main();
+print(main());

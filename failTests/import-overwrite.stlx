@@ -2,4 +2,4 @@ load := procedure(file) {
 	print("Loading " + file + "...");
 };
 
-load("nothing.stlx");
+print(load("nothing.stlx"));
