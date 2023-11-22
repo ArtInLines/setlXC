@@ -6,6 +6,7 @@ class irToCVars() {
 	structPrefix := "__struct_";
 	valStruct    := structPrefix + "Value";
 	varPrefix    := "__stlx_";
+	varCounter   := counter(varPrefix);
 	getVarName   := procedure(instr) {
 		if (startsWith(instr.data, varPrefix)) { return instr.data; }
 		else { return varPrefix + instr.data; }
@@ -15,123 +16,187 @@ class irToCVars() {
 	};
 }
 
+makeListValLiteral := procedure(len, toCVars) {
+	return "{.type = " + toCVars.enumPrefix("Type") + "List" + ", .data = {.l = ail_da_with_cap(char, sizeof(" + toCVars.valStruct + ") * " + len + ")}}";
+};
+
 // @Note: returns an array with 2 values (first the value that can be used in any expression and then a string for statements that need to come before using the first value)
-makeValueStruct := procedure(file, instr, toCVars, cliteral := true) {
+makeValueStruct := procedure(file, name, instr, toCVars, len := om) {
 	global.push("makeValueStruct", [["instr", instr.toStr()]]);
 	if (instr.className() != "inst") { stop("makeValueStruct Start Assumption broken"); }
 	typeEnum := toCVars.enumPrefix("Type");
-	val := "";
-	var := "";
-	if (cliteral) { val += "(" + toCVars.valStruct + ")"; }
+	var  := toCVars.valStruct + " " + name + " = ";
 	// @TODO: Need to create variables for lists/sets and then using that variable as a value
 	match(instr.id) {
 		case "Var":
-			val += toCVars.getVarName(instr);
+			var += toCVars.getVarName(instr) + ";\n";
 		case "Str":
 			// @TODO: Escape certain characters in string
-			val += "{.type = " + typeEnum + "Str" + ", .data = {.s = \"" + instr.data + "\"}}";
+			var += "{.type = " + typeEnum + "Str" + ", .data = {.s = \"" + instr.data + "\"}};\n";
 		case "Int":
-			val += "{.type = " + typeEnum + "Int" + ", .data = {.i = " + instr.data + "}}";
+			var += "{.type = " + typeEnum + "Int" + ", .data = {.i = " + instr.data + "}};\n";
 		case "Float":
-			val += "{.type = " + typeEnum + "Float" + ", .data = {.f = " + instr.data + "}}";
+			var += "{.type = " + typeEnum + "Float" + ", .data = {.f = " + instr.data + "}};\n";
 		case "Bool":
 			x := 0;
 			if (instr.data) { x := 1; }
-			val += "{.type = " + typeEnum + "Int" + ", .data = {.i = " + x + "}}";
+			var += "{.type = " + typeEnum + "Int" + ", .data = {.i = " + x + "}};\n";
+		case "List":
+			var += makeListValLiteral(len, toCVars) + ";\n";
 		case "Om":
-			val += "{0}";
+			var += "{0};\n";
 		default:
 			compileErr(file, instr.start, instr.end, "Making a value out of a '" + instr.id + "' is not yet implemented");
 	}
 	global.pop();
-	return [val, var];
+	return [name, var];
 };
 
-irCodeToC := procedure(file, code, varCounter, toCVars) {
+irCodeToC := procedure(file, code, toCVars) {
 	global.push("irCodeToC", []);
+	getVar := closure() { return toCVars.varCounter.get(); };
 
 	res := "";
 	st  := stack();
 	for (instr in code) {
+		global.p("irCodeToC - instr: " + instr.id);
 		match (instr.id) {
 			case "And":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'And' to C code is not yet implemented");
 			case "Or":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Or' to C code is not yet implemented");
 			case "Eq":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Eq' to C code is not yet implemented");
+				op2 := st.pop();
+				op1 := st.pop();
+				tmpVar := getVar();
+				st.push(inst("Var", tmpVar, instr.start, instr.end));
+				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
+				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
+				res   += var;
+				opRes += "__eq_values(";
+				opRes += name;
+				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
+				res   += var;
+				opRes += ", " + name + ");\n";
+				res   += opRes;
 			case "Ge":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Ge' to C code is not yet implemented");
+				op2 := st.pop();
+				op1 := st.pop();
+				tmpVar := getVar();
+				st.push(inst("Var", tmpVar, instr.start, instr.end));
+				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
+				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
+				res   += var;
+				opRes += "__ge_values(";
+				opRes += name;
+				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
+				res   += var;
+				opRes += ", " + name + ");\n";
+				res   += opRes;
 			case "Le":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Le' to C code is not yet implemented");
+				op2 := st.pop();
+				op1 := st.pop();
+				tmpVar := getVar();
+				st.push(inst("Var", tmpVar, instr.start, instr.end));
+				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
+				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
+				res   += var;
+				opRes += "__le_values(";
+				opRes += name;
+				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
+				res   += var;
+				opRes += ", " + name + ");\n";
+				res   += opRes;
 			case "Gt":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Gt' to C code is not yet implemented");
+				op2 := st.pop();
+				op1 := st.pop();
+				tmpVar := getVar();
+				st.push(inst("Var", tmpVar, instr.start, instr.end));
+				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
+				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
+				res   += var;
+				opRes += "__gt_values(";
+				opRes += name;
+				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
+				res   += var;
+				opRes += ", " + name + ");\n";
+				res   += opRes;
 			case "Lt":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Lt' to C code is not yet implemented");
+				op2 := st.pop();
+				op1 := st.pop();
+				tmpVar := getVar();
+				st.push(inst("Var", tmpVar, instr.start, instr.end));
+				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
+				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
+				res   += var;
+				opRes += "__lt_values(";
+				opRes += name;
+				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
+				res   += var;
+				opRes += ", " + name + ");\n";
+				res   += opRes;
 			case "In":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'In' to C code is not yet implemented");
 			case "Add":
 				op2 := st.pop();
 				op1 := st.pop();
-				tmpVar := varCounter.get();
+				tmpVar := getVar();
 				st.push(inst("Var", tmpVar, instr.start, instr.end));
 				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
-				[val, var] := makeValueStruct(file, op1, toCVars);
+				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
 				res   += var;
 				opRes += "__add_values(";
-				opRes += val;
-				[val, var] := makeValueStruct(file, op2, toCVars);
+				opRes += name;
+				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
 				res   += var;
-				opRes += ", ";
-				opRes += val;
-				opRes += ");\n";
+				opRes += ", " + name + ");\n";
 				res   += opRes;
 			case "Sub":
 				op2 := st.pop();
 				op1 := st.pop();
-				tmpVar := varCounter.get();
+				tmpVar := getVar();
 				st.push(inst("Var", tmpVar, instr.start, instr.end));
 				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
-				[val, var] := makeValueStruct(file, op1, toCVars);
+				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
 				res   += var;
 				opRes += "__sub_values(";
-				opRes += val;
-				[val, var] := makeValueStruct(file, op2, toCVars);
+				opRes += name;
+				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
 				res   += var;
 				opRes += ", ";
-				opRes += val;
+				opRes += name;
 				opRes += ");\n";
 				res   += opRes;
 			case "Mul":
 				op2 := st.pop();
 				op1 := st.pop();
-				tmpVar := varCounter.get();
+				tmpVar := getVar();
 				st.push(inst("Var", tmpVar, instr.start, instr.end));
 				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
-				[val, var] := makeValueStruct(file, op1, toCVars);
+				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
 				res   += var;
 				opRes += "__mul_values(";
-				opRes += val;
-				[val, var] := makeValueStruct(file, op2, toCVars);
+				opRes += name;
+				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
 				res   += var;
 				opRes += ", ";
-				opRes += val;
+				opRes += name;
 				opRes += ");\n";
 				res   += opRes;
 			case "Div":
 				op2 := st.pop();
 				op1 := st.pop();
-				tmpVar := varCounter.get();
+				tmpVar := getVar();
 				st.push(inst("Var", tmpVar, instr.start, instr.end));
 				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
-				[val, var] := makeValueStruct(file, op1, toCVars);
+				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
 				res   += var;
 				opRes += "__div_values(";
-				opRes += val;
-				[val, var] := makeValueStruct(file, op2, toCVars);
+				opRes += name;
+				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
 				res   += var;
 				opRes += ", ";
-				opRes += val;
+				opRes += name;
 				opRes += ");\n";
 				res   += opRes;
 			case "Mod":
@@ -154,29 +219,54 @@ irCodeToC := procedure(file, code, varCounter, toCVars) {
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Not' to C code is not yet implemented");
 			case "Neg":
 				operand := st.pop();
-				tmpVar  := varCounter.get();
+				tmpVar  := getVar();
 				st.push(inst("Var", tmpVar, instr.start, instr.end));
 				opRes   := toCVars.valStruct + " " + tmpVar + " = ";
-				[val, var] := makeValueStruct(file, operand, toCVars);
+				[name, var] := makeValueStruct(file, getVar(), operand, toCVars);
 				res     += var;
-				opRes   += "__neg_value(" + val + ");\n";
+				opRes   += "__neg_value(" + name + ");\n";
 				res     += opRes;
 			case "Len":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Len' to C code is not yet implemented");
+				coll    := st.pop();
+				ret     := getVar();
+				st.push(inst("Var", ret, instr.start, instr.end));
+				lenInst := inst("Int", toCVars.getVarName(coll) + ".data.l.len", instr.start, instr.end);
+				[name, var] := makeValueStruct(file, ret, lenInst, toCVars);
+				res     += var;
 			case "Assign":
-				var := toCVars.getVarName(st.pop());
+				out := toCVars.getVarName(st.pop());
 				val := st.pop();
-				assign := toCVars.valStruct + " " + var + " = ";
-				[x, y] := makeValueStruct(file, val, toCVars, false);
-				assign += x + ";\n";
-				res += y;
-				res += assign;
+				res += toCVars.valStruct + " " + out + " = " + val.data + ";\n";
 			case "Ret":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Ret' to C code is not yet implemented");
 			case "Range":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Range' to C code is not yet implemented");
+				hi     := st.pop();
+				lo     := st.pop();
+				coll   := st.pop();
+				out    := getVar();
+				st.push(inst("Var", out, instr.start, instr.end));
+				[hiTmp, hivar] := makeValueStruct(file, getVar(), hi, toCVars);
+				[loTmp, lovar] := makeValueStruct(file, getVar(), lo, toCVars);
+				res    += lovar;
+				res    += hivar;
+				loname := getVar();
+				hiname := getVar();
+				res    += "u32 " + loname + " = __stlx_get_idx(" + loTmp + ", " + toCVars.getVarName(coll) + ");\n";
+				res    += "u32 " + hiname + " = __stlx_get_idx(" + hiTmp + ", " + toCVars.getVarName(coll) + ");\n";
+				len    := getVar();
+				res    += "u32 " + len + " = " + hiname + " - " + loname + " + 1;\n";
+				res    += toCVars.valStruct + " " + out + " = " + makeListValLiteral(len, toCVars) + ";\n";
+				res    += out + ".data.l.len = " + len + ";\n";
+				res    += "memcpy(" + out + ".data.l.data, &((" + toCVars.valStruct + " *) " + toCVars.getVarName(coll) + ".data.l.data)[" + loname + "], " + "sizeof(" + toCVars.valStruct + ") * " + len + ");\n";
 			case "Index":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Index' to C code is not yet implemented");
+				idx  := st.pop();
+				coll := st.pop();
+				ret  := getVar();
+				st.push(inst("Var", ret, instr.start, instr.end));
+				[idxName, idxVar] := makeValueStruct(file, getVar(), idx, toCVars);
+				res  += idxVar;
+				res  += toCVars.valStruct + " " + ret + " = ";
+				res  += "((" + toCVars.valStruct + " *) " + toCVars.getVarName(coll) + ".data.l.data)[__stlx_get_idx(" + idxName + ", " + toCVars.getVarName(coll) + ")];\n";
 			case "Property":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Property' to C code is not yet implemented");
 			case "Call":
@@ -187,15 +277,19 @@ irCodeToC := procedure(file, code, varCounter, toCVars) {
 					args   += [st.pop()];
 					arglen -= 1;
 				}
-				ret  := varCounter.get();
+				ret  := getVar();
 				st.push(inst("Var", ret, instr.start, instr.end));
 				call := toCVars.valStruct + " " + ret + " = ";
 				call += var + "(";
 				for (i in {1..#args}) {
 					if (i != 1) { call += ", "; }
-					[val, var] := makeValueStruct(file, args[i], toCVars);
-					call += val;
-					res  += var;
+					if (args[i].id == "Var") {
+						call += toCVars.getVarName(args[i]);
+					} else {
+						[name, var] := makeValueStruct(file, getVar(), args[i], toCVars);
+						call += name;
+						res  += var;
+					}
 				}
 				call += ");\n";
 				res  += call;
@@ -205,15 +299,30 @@ irCodeToC := procedure(file, code, varCounter, toCVars) {
 				res += instr.data + ":\n";
 			case "CondJmp":
 				cond := st.pop();
-				[val, var] := makeValueStruct(file, cond, toCVars);
+				[name, var] := makeValueStruct(file, getVar(), cond, toCVars);
 				res += var;
-				res += "if (!" + val + ".data.i" + ") goto " + instr.data + ";\n";
+				res += "if (!" + name + ".data.i" + ") goto " + instr.data + ";\n";
 			case "Jmp":
 				res += "goto " + instr.data + ";\n";
 			case "Set":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Set' to C code is not yet implemented");
 			case "List":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'List' to C code is not yet implemented");
+				args   := [];
+				arglen := st.pop().data;
+				idx    := 0;
+				while (idx < arglen) {
+					args += [st.pop()];
+					idx  += 1;
+				}
+				[lname, lvar] := makeValueStruct(file, getVar(), instr, toCVars, arglen);
+				res += lvar;
+				res += lname + ".data.l.len = " + #args + ";\n";
+				st.push(inst("Var", lname, instr.start, instr.end));
+				for (i in {1..#args}) {
+					[name, var] := makeValueStruct(file, getVar(), args[i], toCVars);
+					res += var;
+					res += "((" + toCVars.valStruct + " *) " + lname + ".data.l.data)[" + (#args - i) + "] = " + name + ";\n";
+				}
 			case "Proc":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Proc' to C code is not yet implemented");
 			case "Block":
@@ -221,6 +330,13 @@ irCodeToC := procedure(file, code, varCounter, toCVars) {
 			default:
 				st.push(instr);
 		}
+		// global.p("Stack: " + st.toStr([instr] |=> instr.toStr()));
+
+		// global.p("Current output:");
+		// global.p(res);
+		// global.p("");
+		// global.p("-------");
+		// global.p("");
 	}
 
 	global.pop();
@@ -231,16 +347,13 @@ irCodeToC := procedure(file, code, varCounter, toCVars) {
 irToC := procedure(file, ir) {
 	// @TODO: Deal with procedures
 	global.push("irToC", []);
+	toCVars := irToCVars();
 	res := "";
-
-	toCVars    := irToCVars();
-	varCounter := counter(toCVars.varPrefix);
-
 	res += "#include \"setlX.c\"\n";
 	res += "\n";
 
 	res += "int main(void)\n{\n";
-	res += addIndents(irCodeToC(file, ir.code, varCounter, toCVars), 1);
+	res += addIndents(irCodeToC(file, ir.code, toCVars), 1);
 	res += "\treturn 0;\n";
 	res += "}\n";
 

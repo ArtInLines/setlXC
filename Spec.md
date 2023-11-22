@@ -148,7 +148,7 @@ typedef struct instType { // Represented as strings in SetlX
 	// Other Ops
 	Assign,     // [val, var] -> []
 	Ret,        // [...] -> []
-	Range,      // [coll1, lo, hi] -> [coll2]
+	Range,      // [lo, hi] -> [range]
 	Index,      // [coll, idx] -> [val]
 	Property,   // [val, str] -> [val]
 	Call,       // [...args, arglen, var] -> [val]

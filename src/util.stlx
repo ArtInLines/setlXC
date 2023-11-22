@@ -201,6 +201,17 @@ class stack() {
 		this.size -= 1;
 		return this.arr[this.size + 1];
 	};
+	toStr     := procedure(eltoStr := [x] |=> x) {
+		s := "[";
+		i := 1;
+		while (i <= this.size) {
+			if (i > 1) { s += ", "; }
+			s += eltoStr(this.arr[i]);
+			i += 1;
+		}
+		s += "]";
+		return s;
+	};
 }
 
 setToStr := procedure(set, f := om) {

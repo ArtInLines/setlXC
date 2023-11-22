@@ -90,9 +90,13 @@ codegenExpr := procedure(file, node) {
 			insts += codegenExpr(file, node.data);
 			insts += codegenExpr(file, node.args[1]);
 		case "Index":
-			insts += codegenExpr(file, node.args[1]);
-			insts += codegenExpr(file, node.args[2]);
-			insts += [inst("Index", om, node.start, node.end)];
+			if (node.args[2].id == "Range") {
+				insts += codegenExpr(file, node.args[2]);
+			} else {
+				insts += codegenExpr(file, node.args[1]);
+				insts += codegenExpr(file, node.args[2]);
+				insts += [inst("Index", om, node.start, node.end)];
+			}
 		case "Range":
 			list  := codegenExpr(file, node.args[1]);
 			insts += list;

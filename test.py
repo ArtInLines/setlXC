@@ -58,7 +58,7 @@ def main(params: [str]):
 	if curTest != None:
 		tests.append(curTest)
 
-	# @Note: For colorcodes, see here: https://stackoverflow.cNone/a/2616912/13764271
+	# @Note: For colorcodes, see here: https://stackoverflow.com/a/2616912/13764271
 	succ  = 0
 	total = 0
 	testedFile = False
