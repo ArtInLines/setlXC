@@ -5,8 +5,8 @@ load("imports.stlx");
 load("ir.stlx");
 load("transpile.stlx");
 
-compile := procedure(file) {
-	global.push("compile", [["file", file]]);
+compile := procedure(file, outfile) {
+	global.push("compile", [["file", file], ["outfile", outfile]]);
 	str  := join(readFile(file), "\n");
 	toks := lexer(file, str).lex();
 	ast  := parser(file, toks).parse();
