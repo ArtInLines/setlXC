@@ -21,14 +21,14 @@ compile := procedure(file) {
 		print(ir.displayStr());
 	}
 
-	c := irToC(file, ir);
-	writeFile("../out.c", c); // @TODO: Provide parameter for name of output file
+	c := irToC(infile, ir);
+	writeFile(outfile + ".c", c);
 	global.pop();
 };
 
 
 main := procedure(params) {
-	if (#params < 1) {
+	if (#params < 2) {
 		printErr("Not enough arguments were provided.");
 		printErr();
 		printErr("Usage:");
@@ -50,7 +50,7 @@ main := procedure(params) {
 
 	global.push("main", [["params", params]]);
 	try {
-		compile(params[1]);
+		compile(params[1], params[2]);
 	} catch (e) {
 		printErr(e);
 		if (global.debugLevel >= 2) {

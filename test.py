@@ -1,5 +1,9 @@
 import sys
 import subprocess
+import time
+import math
+
+dirSep = "\\"
 
 def addIndents(s, n, indent = "\t"):
 	lines = []
@@ -52,7 +56,7 @@ def main(params: [str]):
 		elif line.startswith("## "):
 			if curTest != None:
 				tests.append(curTest)
-			curTest = testcase(testDir + "/" + line[3:])
+			curTest = testcase(testDir + dirSep + line[3:])
 		else:
 			curTest.out += line + "\n"
 	if curTest != None:
@@ -103,10 +107,10 @@ def main(params: [str]):
 	dir = ""
 	newTestsFile = ""
 	for t in tests:
-		paths = t.file.split("/")
+		paths = t.file.split(dirSep)
 		d     = ""
 		if len(paths) > 1:
-			d = "/".join(paths[0:-1]).strip()
+			d = dirSep.join(paths[0:-1]).strip()
 		if d != dir:
 			newTestsFile += "# " + d + "\n"
 			dir = d
@@ -117,4 +121,7 @@ def main(params: [str]):
 	f.close()
 
 x = sys.argv[1:]
+start = time.time()
 main(x)
+end = time.time()
+print("Time: " + str(round(end - start, 3)) + "s")
