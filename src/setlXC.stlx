@@ -5,47 +5,49 @@ load("imports.stlx");
 load("ir.stlx");
 load("transpile.stlx");
 
-compile := procedure(file) {
-	global.push("compile", [["file", file]]);
-	str  := join(readFile(file), "\n");
-	toks := lexer(file, str).lex();
-	ast  := parser(file, toks).parse();
-	ast  := addImports(file, ast)[1];
+compile := procedure(infile, outfile) {
+	global.push("compile", [["infile", infile], ["outfile", outfile]]);
+	str  := join(readFile(infile), "\n");
+	toks := lexer(infile, str).lex();
+	ast  := parser(infile, toks).parse();
+	ast  := addImports(infile, ast)[1];
 	if (global.fullDebug) {
 		print("AST:"); // @Cleanup
 		print(ast.dumpToStr(global.debug));
 	}
-	ir   := codegenBlock(file, ast);
+	ir   := codegenBlock(infile, ast);
 	if (global.fullDebug) {
 		print("\nIR:"); // @Cleanup
 		print(ir.displayStr());
 	}
 
-	c := irToC(file, ir);
-	writeFile("../out.c", c); // @TODO: Provide parameter for name of output file
+	c := irToC(infile, ir);
+	writeFile(outfile + ".c", c);
 	global.pop();
 };
 
 
 main := procedure(params) {
-	if (#params < 1) {
+	if (#params < 2) {
 		printErr("Not enough arguments were provided.");
 		printErr();
 		printErr("Usage:");
-		printErr("setlX setlXC.stlx -p <filename> [-dd]");
+		printErr("setlX setlXC.stlx -p <input> <output> [-dd]");
+		printErr("The input can be a relative or absolute filepath.");
+		printErr("The output can be a relative or absolute filepath. It should not include the '.c' file-ending.");
 		printErr("The flag '-d'  is optional and enables debugging mode.      It prints some useful debugging information.");
 		printErr("The flag '-dd' is optional and enables full debugging mode. It prints alongside the usual debug info also the AST and IR.");
 		return;
 	}
 
-	if (#params >= 2 && params[2][..2] == "-d") {
+	if (#params >= 3 && params[3][..2] == "-d") {
 		global.debug := true;
-		if (params[2][3] == "d") { global.fullDebug := true; }
+		if (params[3][3] == "d") { global.fullDebug := true; }
 	}
 
 	global.push("main", [["params", params]]);
 	try {
-		compile(params[1]);
+		compile(params[1], params[2]);
 	} catch (e) {
 		printErr(e);
 		if (global.debug) {

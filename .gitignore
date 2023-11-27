@@ -1,4 +1,5 @@
 *.bc
 *.exe
 *.o
-out.c
+tests/*.c
+failTests/*.c
