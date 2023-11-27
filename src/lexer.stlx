@@ -11,14 +11,12 @@ class token(id, start, end, data := om) {
 	isPrimary  := procedure() { return id in {"Iden", "Str", "Int", "Float", "LParan", "LBrack", "LCurly", "True", "False"}; };
 	equals     := procedure(other) { return other != om && id == other.id && start == other.start && end == other.end && data == other.data; };
 	displayStr := procedure() {
-		global.push("token.displayStr", []);
 		res := om;
 		if (data == om) {
 			res := id;
 		} else {
 			res := id + "('" + data + "')";
 		}
-		global.pop();
 		return res;
 	};
 	toStr := displayStr;
@@ -166,17 +164,16 @@ class lexer(file_path, str) {
 	};
 
 	next_token := procedure() {
-		// global.p("next_token  -  cur=" + cur + ", str[cur]=" + str[cur]);
 		while(cur <= len && is_space()) {
 			chop_char();
 		}
 		if (cur > len) {
 			return om;
 		}
-		if (matches(str[cur], '[a-zA-Z_]')) { return next_word();   }
-		else if (matches(str[cur], '[0-9]')) { return next_num();    }
-		else if (str[cur] == '"') { return next_str(); }
-		else if (str[cur] == "'") { return next_str(); }
+		if (matches(str[cur], '[a-zA-Z_]'))  { return next_word(); }
+		else if (matches(str[cur], '[0-9]')) { return next_num();  }
+		else if (str[cur] == '"')            { return next_str();  }
+		else if (str[cur] == "'")            { return next_str();  }
 		else if (cur < len && str[cur..cur+1] == "//") {
 			chop_lc();
 			return next_token();

@@ -11,12 +11,12 @@ compile := procedure(file) {
 	toks := lexer(file, str).lex();
 	ast  := parser(file, toks).parse();
 	ast  := addImports(file, ast)[1];
-	if (global.fullDebug) {
+	if (global.debugLevel >= 2) {
 		print("AST:"); // @Cleanup
-		print(ast.dumpToStr(global.debug));
+		print(ast.dumpToStr(true));
 	}
 	ir   := codegenBlock(file, ast);
-	if (global.fullDebug) {
+	if (global.debugLevel >= 2) {
 		print("\nIR:"); // @Cleanup
 		print(ir.displayStr());
 	}
@@ -32,15 +32,20 @@ main := procedure(params) {
 		printErr("Not enough arguments were provided.");
 		printErr();
 		printErr("Usage:");
-		printErr("setlX setlXC.stlx -p <filename> [-dd]");
-		printErr("The flag '-d'  is optional and enables debugging mode.      It prints some useful debugging information.");
-		printErr("The flag '-dd' is optional and enables full debugging mode. It prints alongside the usual debug info also the AST and IR.");
+		printErr("setlX setlXC.stlx -p <filename> [-ddd]");
+		printErr("The flag '-d'   is optional and enables debugging mode.      It prints some useful debugging information.");
+		printErr("The flag '-dd'  is optional and enables extended debugging mode. It prints alongside the usual debug info also the AST, IR and the current stack trace in case of an error.");
+		printErr("The flag '-ddd' is optional and enables full debugging mode. It prints the usual debug info, the AST, IR and the entire call tree of the compiler in case of an error.");
 		return;
 	}
 
 	if (#params >= 2 && params[2][..2] == "-d") {
-		global.debug := true;
-		if (params[2][3] == "d") { global.fullDebug := true; }
+		global.debugLevel := 1;
+		i := 3;
+		while (params[2][i] == "d") {
+			global.debugLevel += 1;
+			i += 1;
+		}
 	}
 
 	global.push("main", [["params", params]]);
@@ -48,11 +53,16 @@ main := procedure(params) {
 		compile(params[1]);
 	} catch (e) {
 		printErr(e);
-		if (global.debug) {
+		if (global.debugLevel >= 2) {
 			printErr("\nStack:");
-			printErr(global.st.toStr());
+			if (global.debugLevel >= 3) {
+				printErr(global.st.toFullStr());
+			} else {
+				printErr(global.st.toStr());
+			}
 		}
 	}
+	global.pop();
 };
 
 main(params);

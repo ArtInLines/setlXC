@@ -12,30 +12,24 @@ class astNode(id, start, end, data := om, args := [], types := {"None"}) {
 	is        := procedure(x) { return id == x; };
 	equals    := procedure(x) { return x != om && id == x.id && start == x.start && end == x.end && data == x.data; }; // Not checking children for equality for performance reasons
 	dataToStr := procedure() {
-		global.push("astNode.dataToStr", []);
 		dat := data;
 		if (data != om && isObject(data) && data.className() == "astNode") { dat := dat.displayStr(); }
-		global.pop();
 		return dat;
 	};
 	dumpToStr := procedure(show_loc := false, indent_level := 0, single_indent := "  ") {
-		global.push("astNode.dumpToStr", [["show_loc", show_loc], ["indent_level", indent_level], ["single_indent", single_indent]]);
 		s := single_indent * indent_level + "@" + id;
 		if (data != om) { s += "('" + dataToStr() + "')"; }
 		if (show_loc) { s += " [" + start.locStr() + " - " + end.locStr() + "]"; }
 		for (c in args) { s += "\n" + c.dumpToStr(show_loc, indent_level + 1, single_indent); }
-		global.pop();
 		return s;
 	};
 	displayStr := procedure() {
-		global.push("astNode.displayStr", []);
 		res := om;
 		if (data ==  om) {
 			res := "@" + id;
 		} else {
 			res := "@" + id + "(" + dataToStr() + ")";
 		}
-		global.pop();
 		return res;
 	}; // for compatibility with token-class
 	toStr := displayStr;
@@ -74,8 +68,9 @@ class parser(file_path, toks) {
 	};
 
 	parse := procedure() {
-		global.push("parse");
+		global.push("parse", []);
 		if (len == 0) {
+			global.pop();
 			return astNode("Block", 0, 0, om, [], exprType("Om"));
 		}
 
@@ -136,8 +131,10 @@ class parser(file_path, toks) {
 
 		if (isUnaryOp) {
 			this.idx -= 1;
+			global.pop();
 			return parseUnary();
 		} else if (isBinOp) {
+			global.pop();
 			return parseBinOps(t);
 		}
 
@@ -206,24 +203,8 @@ class parser(file_path, toks) {
 				this.idx -= 2;
 				res := parseExprWithEndTok(parsePrimary(), endTokTypes);
 			case t.className() == "astNode" && nt.is("LBrack"):
-				// @Note: The idea is to parse an Index. The index can either be a normal expression or a range
-				// Since a range can have an implicit start token, we only call parseExprWithEndTok if there is
-				// no implicit start value for range.
-				// @Cleanup This piece of code is probably hard to read and kind of hacky
-
-				nt := chop_tok();
-				stmt := om;
-				if (!nt.is("DotDot")) { stmt := parseExprWithEndTok(nt, ["RBrack", "DotDot"]); }
-				if (toks[idx-1].is("DotDot")) {
-					x := om;
-					if (!cur_tok().is("RBrack")) { x := parseExprWithEndTok(chop_tok(), ["RBrack"]); }
-					else { chop_tok(); }
-
-					if (stmt == om) { stmt := astNode("Range", t.start, toks[idx-1].end, om, [t,       x], {"List"}); }
-					else            { stmt := astNode("Range", t.start, toks[idx-1].end, om, [t, stmt, x], {"List"}); }
-				}
-				node := astNode("Index", t.start, toks[idx-1].end, om, [t, stmt], {"List"}); // @TODO: Update type here
-				res := parseExprWithEndTok(node, endTokTypes);
+				node := parseIndexExpr(t, chop_tok());
+				res  := parseExprWithEndTok(node, endTokTypes);
 			case nt.is("LParan"):
 				argList := parseCommaSeparated("RParan");
 				data := t;
@@ -234,8 +215,6 @@ class parser(file_path, toks) {
 				tt := chop_tok();
 				if (!tt.is("Iden")) { compileErr(file, tt.start, loc.toStr(t.start, tt.end), "Syntax Error. Only identifiers are allowed as accessors after a dot."); }
 				tt := parsePrimary(tt);
-				p := t.data;
-				if (t.className() == "astNode") { p := t; }
 				prop := astNode("Property", t.start, tt.end, t.data, [tt]);
 				res := parseExprWithEndTok(prop, endTokTypes);
 			default:
@@ -248,6 +227,40 @@ class parser(file_path, toks) {
 		if (toks[idx-1].id notin endTokTypes) { stop("parseExprWithEndTok: end assumption broken"); }
 		global.pop();
 		return res;
+	};
+
+	// Starts with tok == cur_tok pointing to token the LBrack
+	// and iden equal to the expression to index
+	// Ends with current token pointing at token directly after RBrack
+	// Several consecutive indices will be parsed together
+	parseIndexExpr := procedure(iden, tok) {
+		// @Note: The idea is to parse an Index. The index can either be a normal expression or a range
+		// Since a range can have an implicit start token, we only call parseExprWithEndTok if there is
+		// no implicit start value for range.
+		// @Cleanup This piece of code is probably hard to read and kind of hacky
+		global.push("parseIndexExpr", [["iden", iden.displayStr()], ["tok", tok.displayStr()]]);
+		if (iden.className() != "astNode" || !tok.is("LBrack")) { stop("parseIndexExpr - Start Assumption broken"); }
+
+		chop_tok();
+		tok  := chop_tok();
+		stmt := om;
+		if (!tok.is("DotDot")) { stmt := parseExprWithEndTok(tok, ["RBrack", "DotDot"]); }
+		if (toks[idx-1].is("DotDot")) {
+			x := om;
+			if (!cur_tok().is("RBrack")) { x := parseExprWithEndTok(chop_tok(), ["RBrack"]); }
+			else { chop_tok(); }
+
+			if (stmt == om) { stmt := astNode("Range", iden.start, toks[idx-1].end, om, [iden,       x], {"List"}); }
+			else            { stmt := astNode("Range", iden.start, toks[idx-1].end, om, [iden, stmt, x], {"List"}); }
+		}
+		node := astNode("Index", iden.start, toks[idx-1].end, om, [iden, stmt], {"List"}); // @TODO: Update type here
+		if (cur_tok().is("LBrack")) {
+			node := parseIndexExpr(node, cur_tok());
+		}
+
+		if (!toks[idx-1].is("RBrack")) { stop("parseIndexExpr - End Assumption borken"); }
+		global.pop();
+		return node;
 	};
 
 	// Parses a Block of Statements until the endTok is reached.
@@ -331,7 +344,7 @@ class parser(file_path, toks) {
 	// Starts with toks[idx-1] == "if"
 	// Ends with toks[idx-1] == "}"
 	parseIf := procedure() {
-		global.push("parseIf");
+		global.push("parseIf", []);
 		if_form := "if (<cond>) { <body> }";
 		if (!toks[idx-1].is("If")) { stop("parseIf: start assumption broken"); }
 		start_loc := toks[idx-1].start;
@@ -344,16 +357,16 @@ class parser(file_path, toks) {
 
 		next := chop_tok();
 		end_loc := next.end;
+
 		if (!toks[idx-1].is("RCurly")) { stop("parseIf: end assumption broken"); }
 		global.pop();
-
 		return astNode("If", start_loc, end_loc, om, [cond, body]);
 	};
 
 	// Starts with toks[idx-1] == "Else"
 	// Ends with toks[idx-1] == "}"
 	parseElse := procedure() {
-		global.push("parseElse");
+		global.push("parseElse", []);
 		else_form := "else (if (<cond>))* { <body> }";
 		if (!toks[idx-1].is("Else")) { stop("parseElse: start assumption broken"); }
 		start_loc := toks[idx-1].start;
@@ -429,7 +442,7 @@ class parser(file_path, toks) {
 	// Call with toks[idx-1] == "Static"
 	// Ends with toks[idx-1] == "}"
 	parseStaticBlock := procedure() {
-		global.push("parseStaticBlock");
+		global.push("parseStaticBlock", []);
 		if (!toks[idx-1].is("Static")) { stop("parseStaticBlock: start assumption broken"); }
 
 		start_loc := toks[idx-1].start;
@@ -456,7 +469,7 @@ class parser(file_path, toks) {
 	};
 
 	parseFor := procedure() {
-		global.push("parseFor");
+		global.push("parseFor", []);
 		for_form := "for (<var> in <collection>) { <body> }";
 		if (!toks[idx-1].is("For")) { stop("parseFor: start assumption broken"); }
 		start_loc := toks[idx-1].start;
@@ -631,7 +644,7 @@ class parser(file_path, toks) {
 
 	// Starts with t == toks[idx-1]
 	// Ends with cur_tok() being the next token after the primary value
-	// @Note: Primary means either a literal or a paranthesized expression
+	// @Note: Primary means either a literal, property access, indexed value or a paranthesized expression
 	parsePrimary := procedure(t := chop_tok()) {
 		global.push("parsePrimary", [["t", t.toStr()]]);
 		if (toks[idx-1] != t) {
@@ -641,14 +654,14 @@ class parser(file_path, toks) {
 
 		res := om;
 		switch {
-			case t.className == "astNode": res := t;
+			case t.className == "astNode": res := parseIdenExpr(t);
 			case t.is("LParan"): res := parseParan();
 			case t.is("LCurly"): res := parseSet();
 			case t.is("LBrack"): res := parseList();
 			case t.is("Str"): res := astNode("Str", t.start, t.end, t.data);
 			case t.is("Int"): res := astNode("Int", t.start, t.end, t.data);
 			case t.is("Float"): res := astNode("Float", t.start, t.end, t.data);
-			case t.is("Iden"): res := astNode("Iden", t.start, t.end, t.data);
+			case t.is("Iden"): res := parseIdenExpr(astNode("Iden", t.start, t.end, t.data));
 			case t.is("True"): res := astNode("Bool", t.start, t.end, true);
 			case t.is("False"): res := astNode("Bool", t.start, t.end, false);
 			default:
@@ -661,6 +674,30 @@ class parser(file_path, toks) {
 		if (toks[idx-1].end != res.end) { stop("parsePrimary: end assumption broken"); }
 		global.pop();
 		return res;
+	};
+
+	// Checks if the Identifier should just be an identifier or an Index / Property (for all consecutive property/index accesses)
+	// Starts with iden being an astNode and tok == cur_tok pointing at the token after astNode
+	// Ends with cur_tok pointing at the token after iden-expression
+	parseIdenExpr := procedure(iden, tok := cur_tok()) {
+		global.push("parseIdenExpr", [["iden", iden.displayStr()], ["tok", tok.displayStr()]]);
+		if (iden.className() != "astNode") { stop("parseIdenExpr - Start Assumption broken"); }
+
+		while (tok.is("LBrack") || tok.is("Dot")) {
+			if (tok.is("LBrack")) {
+				iden := parseIndexExpr(iden, tok);
+			} else {
+				// @Cleanup: Basically same code also in parseExprWithEndTok (should be extracted to separate function)
+				chop_tok();
+				nt := chop_tok();
+				if (!nt.is("Iden")) { compileErr(file, tt.start, loc.toStr(t.start, tt.end), "Syntax Error. Only identifiers are allowed as accessors after a dot."); }
+				nt := parsePrimary(nt);
+				iden := astNode("Property", iden.start, nt.end, iden.data, [nt]);
+			}
+			tok := cur_tok();
+		}
+		global.pop();
+		return iden;
 	};
 
 	// Starts with cur_tok() being the unary operator

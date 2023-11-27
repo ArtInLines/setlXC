@@ -15,18 +15,26 @@ class stackNode(n, args) {
 		return s[1..idx] + ")";
 	};
 	// Get a string representation of the stack over time (meaning in tree-representation)
-	toFullStr := procedure(in_level := 0, in_str := "  ") {
+	toFullStr := procedure(show_args := true, in_level := 0, in_str := "   ", depth_to_current := global.stacklen) {
 		s := in_str * in_level;
 		s += this.name;
-		for (c in this.children) {
-			s += "\n" + c.toFullStr(in_level + 1, in_str);
+		if (show_args) { s += " " + this.argsToStr(); }
+		for (i in {1..#this.children}) {
+			d := depth_to_current;
+			if (i == #this.children) { d -= 1; }
+			else { d := 0; }
+			s += "\n" + this.children[i].toFullStr(show_args, in_level + 1, in_str, d);
+		}
+		if (depth_to_current == 1) {
+			s += "\n" + in_str*(in_level - 1) + ">"*(#in_str) + this.name + "<"*(#in_str);
 		}
 		return s;
 	};
 	// Get a string representation of the current stack
-	toStr := procedure(len := global.stacklen) {
+	toStr := procedure(show_args := true, len := global.stacklen) {
 		depth := 0;
-		s     := this.name + " " + this.argsToStr();
+		s     := this.name;
+		if (show_args) { s += " " + this.argsToStr(); }
 		node  := this;
 		while (node.children != [] && depth < len) {
 			node  := node.children[#node.children];
@@ -43,7 +51,7 @@ class stackNode(n, args) {
 	};
 	// Add a new node to level x
 	add := procedure(n, args := {}, x := 0) {
-		if (x <= 0) {
+		if (x <= 1) {
 			if (this.children == []) { this.children := [stackNode(n, args)]; }
 			else                     { this.children += [stackNode(n, args)]; }
 		} else if (this.children == []) { stop("Error in adding to stackNode"); }
@@ -54,23 +62,22 @@ class stackNode(n, args) {
 
 class global() {
 	static {
-		fullDebug := false;
-		debug := false;
+		debugLevel := 0;
 		p     := procedure(s) {
-			if (global.debug) { print(s); }
+			if (global.debugLevel > 0) { print(s); }
 		};
 
 		st       := om;
 		stacklen := 0;
 		push     := procedure(name, args := []) {
-			if (global.debug) {
+			if (global.debugLevel > 0) {
 				if (global.st == om) { global.st := stackNode(name, args); }
-				else { global.st := global.st.add(name, args, global.stacklen - 1); }
+				else { global.st := global.st.add(name, args, global.stacklen); }
 				global.stacklen += 1;
 			}
 		};
 		pop := procedure() {
-			if (global.debug) {
+			if (global.debugLevel > 0) {
 				global.stacklen -= 1;
 			}
 		};
@@ -306,18 +313,14 @@ compileErr := procedure(file, start, endOrLocStr, msg) {
 };
 
 startsWith := procedure(str, prefix, strOffset := 0) {
-	global.push("startsWith", [["str", str], ["prefix", prefix], ["strOffset", strOffset]]);
 	if (#str - strOffset < #prefix) {
-		global.pop();
 		return false;
 	}
 	for (i in {1..#prefix}) {
 		if (str[strOffset + i] != prefix[i]) {
-			global.pop();
 			return false;
 		}
 	}
-	global.pop();
 	return true;
 };
 
@@ -345,7 +348,6 @@ class loc(file, row, col) {
 
 	static {
 		toStr := procedure(start, end) {
-			global.push("loc.toStr", [["start", start.locStr()], ["end", end.locStr()]]);
 			if (start.file != end.file) { stop("loc.toStr(start, end) doesn't work if `start` and `end` are locations in different files"); }
 			lines := readFile(start.file, [start.row..end.row]);
 			if (start.row == end.row) {
@@ -354,7 +356,6 @@ class loc(file, row, col) {
 				lines[1] := lines[1][start.col..];
 				lines[#lines] := lines[#lines][..end.col];
 			}
-			global.pop();
 			return join(lines, "\n");
 		};
 	}
