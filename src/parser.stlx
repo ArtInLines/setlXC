@@ -177,7 +177,7 @@ class parser(file_path, toks) {
 			case nt.id in endTokTypes:
 				if (t.className() != "astNode") {
 					this.idx -= 1;
-					res := parsePrimary(t);
+					res := parsePrimaryOrUnary(t);
 					this.idx += 1;
 				} else {
 					res := t;
@@ -646,6 +646,14 @@ class parser(file_path, toks) {
 
 	// Starts with t == toks[idx-1]
 	// Ends with cur_tok() being the next token after the primary value
+	// @Note: See parsePrimary for info on what is meant by 'primary'
+	parsePrimaryOrUnary := procedure(t := chop_tok()) {
+		if (t.id in global.unaryOps) { return parseUnary(t); }
+		else { return parsePrimary(t); }
+	};
+
+	// Starts with t == toks[idx-1]
+	// Ends with cur_tok() being the next token after the primary value
 	// @Note: Primary means either a literal, property access, indexed value or a paranthesized expression
 	parsePrimary := procedure(t := chop_tok()) {
 		global.push("parsePrimary", [["t", t.toStr()]]);
@@ -702,13 +710,13 @@ class parser(file_path, toks) {
 		return iden;
 	};
 
-	// Starts with cur_tok() being the unary operator
+	// Starts with unaryTok == toks[idx-1] being the unary operator
 	// Ends with cur_tok() being the token after the expression
 	parseUnary := procedure(unaryTok := chop_tok()) {
 		global.push("parseUnary");
 		if (unaryTok.id notin global.unaryOps) { stop("parseUnary: start assumption broken"); }
 
-		expr := parsePrimary();
+		expr := parsePrimaryOrUnary();
 
 		if (expr.end != toks[idx-1].end) { stop("parseUnary: end assumption broken"); }
 		global.pop();
@@ -723,14 +731,14 @@ class parser(file_path, toks) {
 
 		lookahead := cur_tok();
 		while (lookahead != om && global.binOpPrecs[lookahead.id] != om && global.binOpPrecs[lookahead.id] >= min_prec) {
-			if (lhs.className() == "token") { lhs := parsePrimary(lhs); }
+			if (lhs.className() == "token") { lhs := parsePrimaryOrUnary(lhs); }
 			bin_op := chop_tok();
 			prec := global.binOpPrecs[lookahead.id];
 
 			rhsTok := chop_tok();
 			rhs := om;
 			if (rhsTok.id in global.unaryOps) { rhs := parseUnary(rhsTok); }
-			else { rhs := parsePrimary(rhsTok); }
+			else { rhs := parsePrimaryOrUnary(rhsTok); }
 
 			lookahead := cur_tok();
 			if (lookahead != om) {

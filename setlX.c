@@ -227,6 +227,13 @@ __struct_Value __neg_value(__struct_Value val)
 	AIL_UNREACHABLE();
 }
 
+__struct_Value __logical_not(__struct_Value val)
+{
+	if (val.type != __enum_Type_Bool) AIL_UNREACHABLE();
+	val.data.b = !val.data.b;
+	return val;
+}
+
 __struct_Value __add_values(__struct_Value l, __struct_Value r)
 {
 	switch (l.type) {

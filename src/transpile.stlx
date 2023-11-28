@@ -77,6 +77,20 @@ irCodeToC := procedure(file, code, toCVars) {
 				res   += var;
 				opRes += ", " + name + ");\n";
 				res   += opRes;
+			case "Ne":
+				op2 := st.pop();
+				op1 := st.pop();
+				tmpVar := getVar();
+				st.push(inst("Var", tmpVar, instr.start, instr.end));
+				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
+				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
+				res   += var;
+				opRes += "__logical_not(__eq_values(";
+				opRes += name;
+				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
+				res   += var;
+				opRes += ", " + name + "));\n";
+				res   += opRes;
 			case "Ge":
 				op2 := st.pop();
 				op1 := st.pop();

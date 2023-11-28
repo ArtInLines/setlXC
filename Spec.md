@@ -124,6 +124,7 @@ typedef struct instType { // Represented as strings in SetlX
 	And,        // [op1, op2] -> [res]
 	Or,         // [op1, op2] -> [res]
 	Eq,         // [op1, op2] -> [res]
+	Ne,         // [op1, op2] -> [res]
 	Ge,         // [op1, op2] -> [res]
 	Le,         // [op1, op2] -> [res]
 	Gt,         // [op1, op2] -> [res]
