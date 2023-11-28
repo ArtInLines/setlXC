@@ -250,8 +250,10 @@ class parser(file_path, toks) {
 			if (!cur_tok().is("RBrack")) { x := parseExprWithEndTok(chop_tok(), ["RBrack"]); }
 			else { chop_tok(); }
 
-			if (stmt == om) { stmt := astNode("Range", iden.start, toks[idx-1].end, om, [iden,       x], {"List"}); }
-			else            { stmt := astNode("Range", iden.start, toks[idx-1].end, om, [iden, stmt, x], {"List"}); }
+			if (stmt == om) { // No first parameter for range
+				stmt := astNode("Int", tok.start, tok.start, 1, [], {"Int"});
+			}
+			stmt := astNode("Range", iden.start, toks[idx-1].end, om, [iden, stmt, x], {"List"});
 		}
 		node := astNode("Index", iden.start, toks[idx-1].end, om, [iden, stmt], {"List"}); // @TODO: Update type here
 		if (cur_tok().is("LBrack")) {

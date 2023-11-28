@@ -32,17 +32,17 @@ main := procedure(params) {
 		printErr("Not enough arguments were provided.");
 		printErr();
 		printErr("Usage:");
-		printErr("setlX setlXC.stlx -p <filename> [-ddd]");
+		printErr("setlX setlXC.stlx -p <input-file> <output-file> [-ddd]");
 		printErr("The flag '-d'   is optional and enables debugging mode.      It prints some useful debugging information.");
 		printErr("The flag '-dd'  is optional and enables extended debugging mode. It prints alongside the usual debug info also the AST, IR and the current stack trace in case of an error.");
 		printErr("The flag '-ddd' is optional and enables full debugging mode. It prints the usual debug info, the AST, IR and the entire call tree of the compiler in case of an error.");
 		return;
 	}
 
-	if (#params >= 2 && params[2][..2] == "-d") {
+	if (#params >= 3 && params[3][..2] == "-d") {
 		global.debugLevel := 1;
 		i := 3;
-		while (params[2][i] == "d") {
+		while (params[3][i] == "d") {
 			global.debugLevel += 1;
 			i += 1;
 		}
