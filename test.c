@@ -381,7 +381,7 @@ loop:
         }
     }
     if (succ == total) {
-        printf("\033[032mAll %d out of %d test successful \\o/\033[0m\n", succ, total);
+        printf("\033[032mAll %d out of %d tests successful \\o/\033[0m\n", succ, total);
     } else {
         printf("%d out of %d tests successful\n", succ, total);
     }

@@ -15,7 +15,7 @@ compile := procedure(file, outfile) {
 		print("AST:"); // @Cleanup
 		print(ast.dumpToStr(true));
 	}
-	ir   := codegenBlock(file, ast);
+	ir   := codegen(file, ast);
 	if (global.debugLevel >= 2) {
 		print("\nIR:"); // @Cleanup
 		print(ir.displayStr());

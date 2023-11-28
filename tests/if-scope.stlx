@@ -1,0 +1,4 @@
+if (true) {
+	x := 5;
+}
+print(x); // should print 5

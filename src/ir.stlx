@@ -9,14 +9,12 @@ class inst(id, data, start, end) {
 	className := procedure() { return "inst"; };
 	is        := procedure(x) { return id == x; };
 	displayStr := procedure() {
-		global.push("inst.displayStr", [["id", id]]);
 		res := om;
 		if (data == om) {
 			res := id;
 		} else {
 			res := id + "('" + data + "')";
 		}
-		global.pop();
 		return res;
 	};
 	toStr := displayStr;
@@ -31,13 +29,11 @@ class proc(name, args, vars, code, start, end) {
 	end       := end;
 	className := procedure() { return "proc"; };
 	displayStr := procedure() {
-		global.push("proc.displayStr", []);
 		s := name;
 		if (#args > 0) { s += " (\n\t" + join([arg.displayStr() : arg in args], "\n\t") + "\n)"; }
 		else { s += " ()"; }
 		if (#code > 0) { s += " {\n\t" + join([inst.displayStr() : inst in code], "\n\t") + "\n}"; }
 		else { s += " {}"; }
-		global.pop();
 		return s;
 	};
 	toStr := displayStr;
@@ -49,96 +45,104 @@ class intermediateRep(procs := [], vars := [], code := []) {
 	code  := code;
 	className := procedure() { return "intermediateRep"; };
 	displayStr := procedure() {
-		global.push("intermediateRep.displayStr", []);
 		s := "Procedures:";
 		for (proc in procs) { s += "\n" + proc.displayStr(); }
 		s += "\nVariables:";
 		for (var  in vars)  { s += "\n" + var.displayStr(); }
 		s += "\nCode:";
 		for (c    in code)  { s += "\n" + c.displayStr(); }
-		global.pop();
 		return s;
 	};
 	toStr := displayStr;
 }
 
+pointAdd := procedure(a, b) {
+	return [
+		a[1] + b[1],
+		a[2] + b[2]
+	];
+};
+
+// Returns array with 2 elements
+// First a list of IR instructions, then a set of variables, that was used in the expression
 codegenExpr := procedure(file, node) {
 	global.push("codegenExpr", [["ast", node.displayStr()]]);
-	insts := [];
+	res := [[], {}];
 	// global.p("codegenExpr - node: " + node.id);
 	match(node.id) {
 		case "BinOp":
-			insts += codegenExpr(file, node.args[1]);
-			insts += codegenExpr(file, node.args[2]);
-			op    := node.data;
+			res := pointAdd(res, codegenExpr(file, node.args[1]));
+			res := pointAdd(res, codegenExpr(file, node.args[2]));
+			op  := node.data;
 			if (op == "AddColl" || op == "MulColl") { op += "Bin"; }
-			insts += [inst(op, om, node.start, node.end)];
+			res[1] += [inst(op, om, node.start, node.end)];
 		case "UnaryOp":
-			insts += codegenExpr(file, node.args[1]);
-			op    := node.data;
+			res := pointAdd(res, codegenExpr(file, node.args[1]));
+			op  := node.data;
 			if      (op == "Sub")  { op := "Neg"; }
 			else if (op == "Hash") { op := "Len"; }
-			insts += [inst(op, om, node.start, node.end)];
+			res[1] += [inst(op, om, node.start, node.end)];
 		case "Call":
 			for (arg in node.args) {
-				insts += codegenExpr(file, arg);
+				res := pointAdd(res, codegenExpr(file, arg));
 			}
-			insts += [inst("Int", #node.args, node.start, node.end)];
-			insts += codegenExpr(file, node.data);
-			insts += [inst("Call", om, node.start, node.end)];
+			res[1] += [inst("Int", #node.args, node.start, node.end)];
+			res[1] += [inst("Var", node.data.data, node.start, node.end)];
+			res[1] += [inst("Call", om, node.start, node.end)];
 		case "Property":
-			insts += codegenExpr(file, node.data);
-			insts += codegenExpr(file, node.args[1]);
+			res := pointAdd(res, codegenExpr(file, node.data));
+			res := pointAdd(res, codegenExpr(file, node.args[1]));
 		case "Index":
 			if (node.args[2].id == "Range") {
-				insts += codegenExpr(file, node.args[2]);
+				res := pointAdd(res, codegenExpr(file, node.args[2]));
 			} else {
-				insts += codegenExpr(file, node.args[1]);
-				insts += codegenExpr(file, node.args[2]);
-				insts += [inst("Index", om, node.start, node.end)];
+				res    := pointAdd(res, codegenExpr(file, node.args[1]));
+				res    := pointAdd(res, codegenExpr(file, node.args[2]));
+				res[1] += [inst("Index", om, node.start, node.end)];
 			}
 		case "Range":
-			list  := codegenExpr(file, node.args[1]);
-			insts += list;
+			list := codegenExpr(file, node.args[1]);
+			res  := pointAdd(res, list);
 			if (node.args[2] == om) {
-				insts += [inst("Int", 1, node.args[1].end, node.args[1].end)];
+				res[1] += [inst("Int", 1, node.args[1].end, node.args[1].end)];
 			} else {
-				insts += codegenExpr(file, node.args[2]);
+				res := pointAdd(res, codegenExpr(file, node.args[2]));
 			}
 			if (node.args[3] == om) {
-				insts += list;
-				insts += [inst("Len", om, node.end, node.end)];
+				res    := pointAdd(res, list);
+				res[1] += [inst("Len", om, node.end, node.end)];
 			} else {
-				insts += codegenExpr(file, node.args[3]);
+				res := pointAdd(res, codegenExpr(file, node.args[3]));
 			}
-			insts += [inst("Range", om, node.start, node.end)];
+			res[1] += [inst("Range", om, node.start, node.end)];
 		case "List":
 			for (expr in node.args) {
-				insts += codegenExpr(file, expr);
+				res := pointAdd(res, codegenExpr(file, expr));
 			}
-			insts += [inst("Int", #node.args, node.start, node.end)];
-			insts += [inst(node.id, om, node.start, node.end)];
+			res[1] += [inst("Int", #node.args, node.start, node.end)];
+			res[1] += [inst(node.id, om, node.start, node.end)];
 		case "Set":
 			for (expr in node.args) {
-				insts += codegenExpr(file, expr);
+				res := pointAdd(res, codegenExpr(file, expr));
 			}
-			insts += [inst("Int", #node.args, node.start, node.end)];
-			insts += [inst(node.id, om, node.start, node.end)];
+			res[1] += [inst("Int", #node.args, node.start, node.end)];
+			res[1] += [inst(node.id, om, node.start, node.end)];
 		case "Str":
-			insts       += [inst("Str", node.data, node.start, node.end)];
+			res[1] += [inst("Str", node.data, node.start, node.end)];
 		case "Float":
-			insts += [inst(node.id, node.data, node.start, node.end)];
+			res[1] += [inst(node.id, node.data, node.start, node.end)];
 		case "Int":
-			insts += [inst(node.id, node.data, node.start, node.end)];
+			res[1] += [inst(node.id, node.data, node.start, node.end)];
 		case "Bool":
-			insts += [inst(node.id, node.data, node.start, node.end)];
+			res[1] += [inst(node.id, node.data, node.start, node.end)];
 		case "Iden":
-			insts += [inst("Var", node.data, node.start, node.end)];
+			res[1] += [inst("Var", node.data, node.start, node.end)];
+			res[2] += {node.data};
 		default:
 			compileErr(file, node.start, node.end, "Encountered unexpected node in codegenExpr: " + node.id);
 	}
 	global.pop();
-	return insts;
+	return res;
 };
 
 // @Note: Returns a 2D array of instructions. Each instruction is a list containing a 'Var' and optionally also an 'Assign' instruction (including all the instructions for the assignment).
@@ -151,8 +155,8 @@ codegenArgList := procedure(file, ast, flatList := false) {
 	for (node in ast.args) {
 		insts := [];
 		match(node.id) {
-			case "Iden"  : insts += codegenExpr(file, node);
-			case "Assign": insts += codegenAssign(node);
+			case "Iden"  : insts += codegenExpr(file, node)[1];
+			case "Assign": insts += codegenAssign(file, node)[1]; // @Study: Could a procedure be assigned here?
 			default      : compileErr(file, node.start, node.end, "Encountered unexpected node in codegenArgList: " + node.id);
 		}
 		if (flatList) { res += insts;   }
@@ -163,17 +167,44 @@ codegenArgList := procedure(file, ast, flatList := false) {
 	return res;
 };
 
-codegenAssign := procedure(node) {
+// Returns an array with 2 or 3 elements
+// 1. List of IR instructions
+// 2. Set of variable names used in statement
+// 3. Procedure that was defined (potentially empty)
+codegenAssign := procedure(file, node) {
 	global.push("codegenAssign", [["node", node.displayStr()]]);
 	if (!node.is("Assign")) { stop("Start Assumption of codegenAssign broken. Expects node to be a Assign, but received a " + node.id + " instead."); }
 
-	insts := [];
-	insts += codegenExpr(file, node.args[2]);
-	insts += codegenExpr(file, node.args[1]);
-	insts += [inst("Assign", om, node.start, node.end)];
+	res := [[], {}];
+	if (node.args[2].id == "Proc") {
+		proc   := codegenProc(file, node.args[2], node.args[1].data);
+		res    += proc;
+		res[1] += [inst("Proc", proc.name, proc.start, proc.end)];
+	} else {
+		res := pointAdd(res, codegenExpr(file, node.args[2]));
+	}
+	res    := pointAdd(res, codegenExpr(file, node.args[1]));
+	res[1] += [inst("Assign", om, node.start, node.end)];
 
 	global.pop();
-	return insts;
+	return res;
+};
+
+codegenProc := procedure(file, node, proc_name := om) {
+	compileErr(file, node.start, node.end, "Codegen for Procedures is not yet implemented");
+	// @TODO:
+	// [ir.code, vars] := codegenBlock(file, node.args[2]);
+	// p := proc(currentVarName)
+	// ir.procs += [p];
+	// currentVarName = om;
+};
+
+getVarInits := procedure(vars := {}) {
+	res := [];
+	for (var in vars) {
+		res += [inst("Om", om, 0, 0), inst("Var", var, 0, 0), inst("Assign", om, 0, 0)];
+	}
+	return res;
 };
 
 // Generate an intermediateRep object for a block of code
@@ -182,7 +213,7 @@ codegenBlock := procedure(file, ast) {
 	if (!ast.is("Block")) { stop("Start Assumption of codegenBlock broken. Expects ast to be a Block, but received a " + ast.id + " instead."); }
 
 	ir             := intermediateRep();
-	vars           := []; // @TODO
+	vars           := {};
 	currentVarName := om;
 
 	for (node in ast.args) {
@@ -190,30 +221,38 @@ codegenBlock := procedure(file, ast) {
 		match(node.id) {
 			case "Block":
 				block    := codegenBlock(file, node);
-				ir.code  += block.code;
-				ir.procs += block.procs;
+				ir.code  += block[1].code;
+				ir.procs += block[1].procs;
+				vars     += block[2];
 			case "Ret":
-				ir.code += codegenExpr(file, node.args[1]);
+				expr    := codegenExpr(file, node.args[1]);
+				ir.code += expr[1];
+				vars    += expr[2];
 				ir.code += [inst("Ret", om, node.start, node.end)];
 			case "Assign":
-				ir.code += codegenAssign(node);
+				t       := codegenAssign(file, node);
+				ir.code += t[1];
+				vars    += t[2];
+				if (#t == 3) { ir.procs += [t[3]]; }
 			case "ArgList":
+				// @TODO: This is probably not correct, because ir.code should be a 1D list and codegenArgList returns a 2D List here...
 				ir.code += codegenArgList(file, node);
 			case "Proc":
-				compileErr(file, node.start, node.end, "Codegen for Procedures is not yet implemented");
-				// @TODO:
-				// ir.code := codegenBlock(file, node.args[2]);
-				// p := proc(currentVarName)
-				// ir.procs += [p];
-				// currentVarName = om;
+				// If the Proc appears here, it is never assigned and can thus never be called
+				// We can therefore safely ignore the procedure
+				// ir.procs += codegenProc(file, node);
 			case "If":
-				label     := global.labelCounter.get();
-				body      := codegenBlock(file, node.args[2]);
-				body.code += [inst("Label", label, node.end, node.end)];
-				ir.code   += codegenExpr(file, node.args[1]);
-				ir.code   += [inst("CondJmp", label, node.start, node.end)];
-				ir.code   += body.code;
-				ir.procs  += body.procs;
+				label        := global.labelCounter.get();
+				body         := codegenBlock(file, node.args[2]);
+				body[1].code += [inst("Label", label, node.end, node.end)];
+				vars         += body[2];
+
+				cond     := codegenExpr(file, node.args[1]);
+				vars     += cond[2];
+				ir.code  += cond[1];
+				ir.code  += [inst("CondJmp", label, node.start, node.end)];
+				ir.code  += body[1].code;
+				ir.procs += body[1].procs;
 			case "Else":
 				prevLabel := ir.code[#ir.code];
 				ir.code   := ir.code[1..#ir.code-1];
@@ -224,17 +263,20 @@ codegenBlock := procedure(file, ast) {
 				} else {
 					body := node.args[1];
 				}
-				body      := codegenBlock(file, body);
-				label     := global.labelCounter.get();
-				body.code += [inst("Label", label, node.end, node.end)];
-				ir.code   += [inst("Jmp", label, node.start, node.end)];
-				ir.code   += [prevLabel];
+				body         := codegenBlock(file, body);
+				vars         += body[2];
+				label        := global.labelCounter.get();
+				body[1].code += [inst("Label", label, node.end, node.end)];
+				ir.code      += [inst("Jmp", label, node.start, node.end)];
+				ir.code      += [prevLabel];
 				if (cond != om) {
-					ir.code   += codegenExpr(file, cond);
-					ir.code   += [inst("CondJmp", label, node.start, node.end)];
+					cond    := codegenExpr(file, cond);
+					vars    += cond[2];
+					ir.code += cond[1];
+					ir.code += [inst("CondJmp", label, node.start, node.end)];
 				}
-				ir.code  += body.code;
-				ir.procs += body.procs;
+				ir.code  += body[1].code;
+				ir.procs += body[1].procs;
 			case "Class":
 				compileErr(file, node.start, node.end, "Codegen for Classes is not yet implemented");
 			case "Static":
@@ -246,16 +288,18 @@ codegenBlock := procedure(file, ast) {
 			case "DoWhile":
 				compileErr(file, node.start, node.end, "Codegen for DoWhile-Loops is not yet implemented");
 			default:
-				ir.code += codegenExpr(file, node);
+				expr    := codegenExpr(file, node);
+				ir.code += expr[1];
+				vars    += expr[2];
 		}
 	}
 
-	varInits := [];
-	for (var in vars) {
-		varInits += [inst("Om", om, 0, 0), inst("Var", var, 0, 0), inst("Assign", om, 0, 0)];
-	}
-	ir.code := varInits + ir.code;
-
 	global.pop();
+	return [ir, vars];
+};
+
+codegen := procedure(file, ast) {
+	[ir, vars] := codegenBlock(file, ast);
+	ir.code := getVarInits(vars) + ir.code;
 	return ir;
 };

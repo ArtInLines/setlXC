@@ -164,7 +164,7 @@ typedef struct instType { // Represented as strings in SetlX
 	Float,      // [] -> [num]
 	Bool,		// [] -> [bool]
 	Om,         // [] -> [om]
-	Proc,		// [] -> [proc]
+	Proc,		// [] -> [proc] (name of the procedure)
 	Var;        // [] -> [str]
 	Block;      // [] -> []
 } instType;

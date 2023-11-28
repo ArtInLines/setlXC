@@ -6,5 +6,5 @@ call setlX setlXC.stlx -p ../%1.stlx ../%1 %2
 @echo off
 cd ..
 if exist %1.c (
-	call gcc -Wno-unused-variable -Wall -Wextra -Wpedantic -O2 -o %1 %1.c -I./deps/ -I.
+	call gcc -Wno-unused-variable -Wall -Wextra -O2 -o %1 %1.c -I./deps/ -I.
 )

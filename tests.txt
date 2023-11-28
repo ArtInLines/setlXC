@@ -80,6 +80,10 @@ Hello!
 -251/18
 ## addition
 19
+## uninitialized
+om
+## if-scope
+5
 
 # failTests
 ## dynamic-import

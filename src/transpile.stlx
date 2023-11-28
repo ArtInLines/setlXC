@@ -6,6 +6,7 @@ class irToCVars() {
 	structPrefix := "__struct_";
 	valStruct    := structPrefix + "Value";
 	varPrefix    := "__stlx_";
+	assignedVars := {};
 	varCounter   := counter(varPrefix);
 	getVarName   := procedure(instr) {
 		if (startsWith(instr.data, varPrefix)) { return instr.data; }
@@ -21,11 +22,14 @@ makeListValLiteral := procedure(len, toCVars) {
 };
 
 // @Note: returns an array with 2 values (first the value that can be used in any expression and then a string for statements that need to come before using the first value)
-makeValueStruct := procedure(file, name, instr, toCVars, len := om) {
+makeValueStruct := procedure(file, name, instr, toCVars, len := om, reassigns := false) {
 	global.push("makeValueStruct", [["instr", instr.toStr()]]);
 	if (instr.className() != "inst") { stop("makeValueStruct Start Assumption broken"); }
 	typeEnum := toCVars.enumPrefix("Type");
-	var  := toCVars.valStruct + " " + name + " = ";
+	var := "";
+	if (!reassigns) { var += toCVars.valStruct + " "; }
+	var += name + " = ";
+	if (reassigns) { var += "(" + toCVars.valStruct + ") "; }
 	// @TODO: Need to create variables for lists/sets and then using that variable as a value
 	match(instr.id) {
 		case "Var":
@@ -246,9 +250,14 @@ irCodeToC := procedure(file, code, toCVars) {
 				[name, var] := makeValueStruct(file, ret, lenInst, toCVars);
 				res     += var;
 			case "Assign":
+				reassigns := true;
 				out      := toCVars.getVarName(st.pop());
+				if (out notin toCVars.assignedVars) {
+					toCVars.assignedVars += {out};
+					reassigns    := false;
+				}
 				val      := st.pop();
-				[_, var] := makeValueStruct(file, out, val, toCVars);
+				[_, var] := makeValueStruct(file, out, val, toCVars, om, reassigns);
 				res      += var;
 			case "Ret":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Ret' to C code is not yet implemented");
