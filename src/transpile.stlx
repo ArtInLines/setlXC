@@ -38,9 +38,7 @@ makeValueStruct := procedure(file, name, instr, toCVars, len := om) {
 		case "Float":
 			var += "{.type = " + typeEnum + "Float" + ", .data = {.f = " + instr.data + "}};\n";
 		case "Bool":
-			x := 0;
-			if (instr.data) { x := 1; }
-			var += "{.type = " + typeEnum + "Int" + ", .data = {.i = " + x + "}};\n";
+			var += "{.type = " + typeEnum + "Bool" + ", .data = {.b = " + instr.data + "}};\n";
 		case "List":
 			var += makeListValLiteral(len, toCVars) + ";\n";
 		case "Om":
@@ -297,7 +295,7 @@ irCodeToC := procedure(file, code, toCVars) {
 			case "NativeCall":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'NativeCall' to C code is not yet implemented");
 			case "Label":
-				res += instr.data + ":\n";
+				res += instr.data + ":\n{}\n";
 			case "CondJmp":
 				cond := st.pop();
 				[name, var] := makeValueStruct(file, getVar(), cond, toCVars);

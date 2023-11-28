@@ -8,6 +8,7 @@
 
 typedef enum {
 	__enum_Type_Om = 0,
+	__enum_Type_Bool,
 	__enum_Type_Int,
 	__enum_Type_Float,
 	__enum_Type_Str,
@@ -18,6 +19,7 @@ typedef struct {
 	__struct_Type type;
 	union {
 		void  *x;
+		bool   b;
 		int    i;
 		float  f;
 		char  *s;
@@ -26,43 +28,77 @@ typedef struct {
 } __struct_Value;
 AIL_DA_INIT(__struct_Value);
 
-void __stlx_print_helper(__struct_Value val)
+char *__stlx_print_helper(__struct_Value val)
 {
+	char *buf = malloc(256);
 	switch (val.type) {
 		case __enum_Type_Om:
-			printf("om");
+			sprintf(buf, "om");
+			break;
+		case __enum_Type_Bool:
+			if (val.data.b) sprintf(buf, "true");
+			else            sprintf(buf, "false");
 			break;
 		case __enum_Type_Int:
-			printf("%i", val.data.i);
+			sprintf(buf, "%i", val.data.i);
 			break;
 		case __enum_Type_Float:
-			printf("%f", val.data.f);
+			sprintf(buf, "%f", val.data.f);
 			break;
 		case __enum_Type_Str:
-			printf("%s", val.data.s);
+			sprintf(buf, "%s", val.data.s);
 			break;
-		case __enum_Type_List:
-			printf("[");
+		case __enum_Type_List: {
+			int len = sprintf(buf, "[");
 			__struct_Value *l = (__struct_Value *) val.data.l.data;
 			for (u32 i = 0; i < val.data.l.len; i++) {
-				if (i > 0) printf(", ");
-				__stlx_print_helper(l[i]);
+				if (i > 0) len += sprintf(&buf[len], ", ");
+				char *s = __stlx_print_helper(l[i]);
+				len += sprintf(&buf[len], "%s", s);
+				free(s);
 			}
-			printf("]");
-			break;
+			sprintf(&buf[len], "]");
+		} break;
 	}
+	return buf;
 }
 
 __struct_Value __stlx_print(__struct_Value val)
 {
-	__stlx_print_helper(val);
-	printf("\n");
+	char *s = __stlx_print_helper(val);
+	printf("%s\n", s);
+	free(s);
 	return (__struct_Value){0};
+}
+
+char *__stlx_get_type_str(__struct_Value val)
+{
+	switch (val.type) {
+		case __enum_Type_Om:
+			return "Om";
+		case __enum_Type_Bool:
+			return "Bool";
+		case __enum_Type_Int:
+			return "Int";
+		case __enum_Type_Float:
+			return "Float";
+		case __enum_Type_Str:
+			return "String";
+		case __enum_Type_List:
+			return "List";
+	}
+	return NULL;
 }
 
 char *__dbg_print_value(__struct_Value val)
 {
-	AIL_TODO();
+	char *buf = malloc(256);
+	char *type_str = __stlx_get_type_str(val);
+	int len = sprintf(buf, "{ type: %s, val: ", type_str);
+	char *s = __stlx_print_helper(val);
+	sprintf(&buf[len], "%s }\n", s);
+	free(s);
+	return buf;
 }
 
 u32 __stlx_get_idx(__struct_Value idx, __struct_Value list)
@@ -83,8 +119,8 @@ typedef struct {
 
 __struct_Cmp_Res __cmp_values(__struct_Value x, __struct_Value y)
 {
-	const static __struct_Cmp_Res EQ = { .can_cmp = true, .res = 0 };
-	const static __struct_Cmp_Res NO_CMP = { .can_cmp = false, .res = -1 };
+	static const __struct_Cmp_Res EQ     = { .can_cmp = true, .res = 0 };
+	static const __struct_Cmp_Res NO_CMP = { .can_cmp = false, .res = -1 };
 	bool eq_type = x.type == y.type;
 	switch (x.type) {
 		case __enum_Type_Om:
@@ -92,6 +128,8 @@ __struct_Cmp_Res __cmp_values(__struct_Value x, __struct_Value y)
 				.can_cmp = false,
 				.res     = eq_type ? 0 : -1,
 			};
+		case __enum_Type_Bool:
+			return eq_type && (x.data.b == y.data.b) ? EQ : NO_CMP;
 		case __enum_Type_Int:
 			if (y.type == __enum_Type_Float) {
 				return __cmp_values((__struct_Value) {.type = __enum_Type_Float, .data = {.f = (float)x.data.i}}, y);
@@ -125,48 +163,49 @@ __struct_Cmp_Res __cmp_values(__struct_Value x, __struct_Value y)
 		case __enum_Type_Str:
 			return eq_type && (strcmp(x.data.s, y.data.s) == 0) ? EQ : NO_CMP;
 	}
+	return NO_CMP;
 }
 
 __struct_Value __eq_values(__struct_Value x, __struct_Value y)
 {
-	__struct_Value out = { .type = __enum_Type_Int, .data = {.i = 0} };
-	if (__cmp_values(x, y).res == 0) out.data.i = 1;
+	__struct_Value out = { .type = __enum_Type_Bool, .data = {.b = false} };
+	if (__cmp_values(x, y).res == 0) out.data.b = true;
 	return out;
 }
 
 __struct_Value __le_values(__struct_Value x, __struct_Value y)
 {
-	__struct_Value out = { .type = __enum_Type_Int, .data = {.i = 0} };
+	__struct_Value out = { .type = __enum_Type_Bool, .data = {.b = false} };
 	__struct_Cmp_Res cmp = __cmp_values(x, y);
 	if (!cmp.can_cmp) AIL_UNREACHABLE();
-	if (cmp.res <= 0) out.data.i = 1;
+	if (cmp.res <= 0) out.data.b = true;
 	return out;
 }
 
 __struct_Value __lt_values(__struct_Value x, __struct_Value y)
 {
-	__struct_Value out = { .type = __enum_Type_Int, .data = {.i = 0} };
+	__struct_Value out = { .type = __enum_Type_Bool, .data = {.b = false} };
 	__struct_Cmp_Res cmp = __cmp_values(x, y);
 	if (!cmp.can_cmp) AIL_UNREACHABLE();
-	if (cmp.res < 0) out.data.i = 1;
+	if (cmp.res < 0) out.data.b = true;
 	return out;
 }
 
 __struct_Value __ge_values(__struct_Value x, __struct_Value y)
 {
-	__struct_Value out = { .type = __enum_Type_Int, .data = {.i = 0} };
+	__struct_Value out = { .type = __enum_Type_Bool, .data = {.b = false} };
 	__struct_Cmp_Res cmp = __cmp_values(x, y);
 	if (!cmp.can_cmp) AIL_UNREACHABLE();
-	if (cmp.res >= 0) out.data.i = 1;
+	if (cmp.res >= 0) out.data.b = true;
 	return out;
 }
 
 __struct_Value __gt_values(__struct_Value x, __struct_Value y)
 {
-	__struct_Value out = { .type = __enum_Type_Int, .data = {.i = 0} };
+	__struct_Value out = { .type = __enum_Type_Bool, .data = {.b = false} };
 	__struct_Cmp_Res cmp = __cmp_values(x, y);
 	if (!cmp.can_cmp) AIL_UNREACHABLE();
-	if (cmp.res > 0) out.data.i = 1;
+	if (cmp.res > 0) out.data.b = true;
 	return out;
 }
 
@@ -174,10 +213,12 @@ __struct_Value __neg_value(__struct_Value val)
 {
 	switch (val.type) {
 		case __enum_Type_Om:
+		case __enum_Type_Bool:
 		case __enum_Type_Str:
 		case __enum_Type_List:
 			fprintf(stderr, "Error in trying to negate %s\n", __dbg_print_value(val));
 			exit(1);
+			break;
 		case __enum_Type_Int:
 			return (__struct_Value) { .type = val.type, .data = { .i = -val.data.i }};
 		case __enum_Type_Float:
@@ -190,11 +231,13 @@ __struct_Value __add_values(__struct_Value l, __struct_Value r)
 {
 	switch (l.type) {
 		case __enum_Type_Om:
+		case __enum_Type_Bool:
 			fprintf(stderr, "Error in trying to add %s and %s\n", __dbg_print_value(l), __dbg_print_value(r));
 			exit(1);
 		case __enum_Type_Int:
 			switch (r.type) {
 				case __enum_Type_Om:
+				case __enum_Type_Bool:
 					fprintf(stderr, "Error in trying to add %s and %s\n", __dbg_print_value(l), __dbg_print_value(r));
 					exit(1);
 				case __enum_Type_Int:
@@ -202,11 +245,13 @@ __struct_Value __add_values(__struct_Value l, __struct_Value r)
 				case __enum_Type_Float:
 					return (__struct_Value){ .type = __enum_Type_Float, .data = { .f = ((float)l.data.i) + r.data.f }};
 				case __enum_Type_Str:
+				case __enum_Type_List:
 					AIL_TODO();
-			}
+			} break;
 		case __enum_Type_Float:
 			switch (r.type) {
 				case __enum_Type_Om:
+				case __enum_Type_Bool:
 					fprintf(stderr, "Error in trying to add %s and %s\n", __dbg_print_value(l), __dbg_print_value(r));
 					exit(1);
 				case __enum_Type_Int:
@@ -214,24 +259,30 @@ __struct_Value __add_values(__struct_Value l, __struct_Value r)
 				case __enum_Type_Float:
 					return (__struct_Value){ .type = __enum_Type_Float, .data = { .f = l.data.f + r.data.f }};
 				case __enum_Type_Str:
+				case __enum_Type_List:
 					AIL_TODO();
-			}
+			} break;
 		case __enum_Type_Str:
 			AIL_TODO();
+			break;
 		case __enum_Type_List:
 			AIL_TODO();
+			break;
 	}
+	return (__struct_Value) {0};
 }
 
 __struct_Value __sub_values(__struct_Value l, __struct_Value r)
 {
 	switch (l.type) {
 		case __enum_Type_Om:
+		case __enum_Type_Bool:
 			fprintf(stderr, "Error in trying to add %s and %s\n", __dbg_print_value(l), __dbg_print_value(r));
 			exit(1);
 		case __enum_Type_Int:
 			switch (r.type) {
 				case __enum_Type_Om:
+				case __enum_Type_Bool:
 					fprintf(stderr, "Error in trying to add %s and %s\n", __dbg_print_value(l), __dbg_print_value(r));
 					exit(1);
 				case __enum_Type_Int:
@@ -239,11 +290,13 @@ __struct_Value __sub_values(__struct_Value l, __struct_Value r)
 				case __enum_Type_Float:
 					return (__struct_Value){ .type = __enum_Type_Float, .data = { .f = ((float)l.data.i) - r.data.f }};
 				case __enum_Type_Str:
+				case __enum_Type_List:
 					AIL_TODO();
-			}
+			} break;
 		case __enum_Type_Float:
 			switch (r.type) {
 				case __enum_Type_Om:
+				case __enum_Type_Bool:
 					fprintf(stderr, "Error in trying to add %s and %s\n", __dbg_print_value(l), __dbg_print_value(r));
 					exit(1);
 				case __enum_Type_Int:
@@ -251,24 +304,31 @@ __struct_Value __sub_values(__struct_Value l, __struct_Value r)
 				case __enum_Type_Float:
 					return (__struct_Value){ .type = __enum_Type_Float, .data = { .f = l.data.f - r.data.f }};
 				case __enum_Type_Str:
+				case __enum_Type_List:
 					AIL_TODO();
-			}
+			} break;
 		case __enum_Type_Str:
 			AIL_TODO();
+			break;
 		case __enum_Type_List:
 			AIL_TODO();
+			break;
 	}
+	return (__struct_Value) {0};
 }
 
 __struct_Value __mul_values(__struct_Value l, __struct_Value r)
 {
 	switch (l.type) {
 		case __enum_Type_Om:
+		case __enum_Type_Bool:
 			fprintf(stderr, "Error in trying to add %s and %s\n", __dbg_print_value(l), __dbg_print_value(r));
 			exit(1);
+			break;
 		case __enum_Type_Int:
 			switch (r.type) {
 				case __enum_Type_Om:
+				case __enum_Type_Bool:
 					fprintf(stderr, "Error in trying to add %s and %s\n", __dbg_print_value(l), __dbg_print_value(r));
 					exit(1);
 				case __enum_Type_Int:
@@ -276,11 +336,13 @@ __struct_Value __mul_values(__struct_Value l, __struct_Value r)
 				case __enum_Type_Float:
 					return (__struct_Value){ .type = __enum_Type_Float, .data = { .f = ((float)l.data.i) * r.data.f }};
 				case __enum_Type_Str:
+				case __enum_Type_List:
 					AIL_TODO();
-			}
+			} break;
 		case __enum_Type_Float:
 			switch (r.type) {
 				case __enum_Type_Om:
+				case __enum_Type_Bool:
 					fprintf(stderr, "Error in trying to add %s and %s\n", __dbg_print_value(l), __dbg_print_value(r));
 					exit(1);
 				case __enum_Type_Int:
@@ -288,24 +350,31 @@ __struct_Value __mul_values(__struct_Value l, __struct_Value r)
 				case __enum_Type_Float:
 					return (__struct_Value){ .type = __enum_Type_Float, .data = { .f = l.data.f * r.data.f }};
 				case __enum_Type_Str:
+				case __enum_Type_List:
 					AIL_TODO();
-			}
+			} break;
 		case __enum_Type_Str:
 			AIL_TODO();
+			break;
 		case __enum_Type_List:
 			AIL_TODO();
+			break;
 	}
+	return (__struct_Value) {0};
 }
 
 __struct_Value __div_values(__struct_Value l, __struct_Value r)
 {
 	switch (l.type) {
 		case __enum_Type_Om:
+		case __enum_Type_Bool:
 			fprintf(stderr, "Error in trying to add %s and %s\n", __dbg_print_value(l), __dbg_print_value(r));
 			exit(1);
+			break;
 		case __enum_Type_Int:
 			switch (r.type) {
 				case __enum_Type_Om:
+				case __enum_Type_Bool:
 					fprintf(stderr, "Error in trying to add %s and %s\n", __dbg_print_value(l), __dbg_print_value(r));
 					exit(1);
 				case __enum_Type_Int:
@@ -313,11 +382,13 @@ __struct_Value __div_values(__struct_Value l, __struct_Value r)
 				case __enum_Type_Float:
 					return (__struct_Value){ .type = __enum_Type_Float, .data = { .f = ((float)l.data.i) / r.data.f }};
 				case __enum_Type_Str:
+				case __enum_Type_List:
 					AIL_TODO();
-			}
+			} break;
 		case __enum_Type_Float:
 			switch (r.type) {
 				case __enum_Type_Om:
+				case __enum_Type_Bool:
 					fprintf(stderr, "Error in trying to add %s and %s\n", __dbg_print_value(l), __dbg_print_value(r));
 					exit(1);
 				case __enum_Type_Int:
@@ -325,13 +396,17 @@ __struct_Value __div_values(__struct_Value l, __struct_Value r)
 				case __enum_Type_Float:
 					return (__struct_Value){ .type = __enum_Type_Float, .data = { .f = l.data.f / r.data.f }};
 				case __enum_Type_Str:
+				case __enum_Type_List:
 					AIL_TODO();
-			}
+			} break;
 		case __enum_Type_Str:
 			AIL_TODO();
+			break;
 		case __enum_Type_List:
 			AIL_TODO();
+			break;
 	}
+	return (__struct_Value) {0};
 }
 
 #endif // SETLX_H_
