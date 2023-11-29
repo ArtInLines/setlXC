@@ -18,7 +18,7 @@ compile := procedure(file, outfile) {
 	ir   := codegen(file, ast);
 	if (global.debugLevel >= 2) {
 		print("\nIR:"); // @Cleanup
-		print(ir.displayStr());
+		print(ir.dumpToStr());
 	}
 
 	c := irToC(infile, ir);

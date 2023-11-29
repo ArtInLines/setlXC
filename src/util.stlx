@@ -373,6 +373,13 @@ addTypes := procedure(t1, t2) {
 	else              { return res;     }
 };
 
+pointAdd := procedure(a, b) {
+	return [
+		a[1] + b[1],
+		a[2] + b[2]
+	];
+};
+
 // Takes a file-/folder-path as input and returns a list of all the folders/files in the path
 splitPath := procedure(path) {
 	res := [];

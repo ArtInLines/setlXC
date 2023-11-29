@@ -20,48 +20,47 @@ class inst(id, data, start, end) {
 	toStr := displayStr;
 }
 
-class proc(name, args, vars, code, start, end) {
-	name      := name;
-	args      := args;
-	vars      := vars;
-	code      := code;
-	start     := start;
-	end       := end;
-	className := procedure() { return "proc"; };
+class proc(name, args, ir, start, end) {
+	name       := name;
+	args       := args;
+	ir         := ir;
+	start      := start;
+	end        := end;
+	className  := procedure() { return "proc"; };
+	dumpToStr := procedure() {
+		s := this.displayStr();
+		if (#ir.code > 0) { s += " {\n  " + join([instr.displayStr() : instr in ir.code], "\n  ") + "\n}"; }
+		else { s += " {}"; }
+		return s;
+	};
 	displayStr := procedure() {
 		s := name;
-		if (#args > 0) { s += " (\n\t" + join([arg.displayStr() : arg in args], "\n\t") + "\n)"; }
-		else { s += " ()"; }
-		if (#code > 0) { s += " {\n\t" + join([inst.displayStr() : inst in code], "\n\t") + "\n}"; }
-		else { s += " {}"; }
+		if (#args > 0) { s += "(\n  " + join([arg.displayStr() : arg in args], "\n  ") + "\n)"; }
+		else { s += "()"; }
 		return s;
 	};
 	toStr := displayStr;
 }
 
-class intermediateRep(procs := [], vars := [], code := []) {
+class intermediateRep(procs := [], vars := {}, code := []) {
 	procs := procs;
 	vars  := vars;
 	code  := code;
 	className := procedure() { return "intermediateRep"; };
-	displayStr := procedure() {
+	dumpToStr := procedure() {
 		s := "Procedures:";
-		for (proc in procs) { s += "\n" + proc.displayStr(); }
+		for (p in procs)    { s += "\n" + p.dumpToStr(); }
 		s += "\nVariables:";
-		for (var  in vars)  { s += "\n" + var.displayStr(); }
+		for (var  in vars)  { s += "\n" + var; }
 		s += "\nCode:";
 		for (c    in code)  { s += "\n" + c.displayStr(); }
 		return s;
 	};
+	displayStr := procedure() {
+		return "ir(#procs = " + #procs + ", #vars = " + #vars + ", #code = " + #code + ")";
+	};
 	toStr := displayStr;
 }
-
-pointAdd := procedure(a, b) {
-	return [
-		a[1] + b[1],
-		a[2] + b[2]
-	];
-};
 
 // Returns array with 2 elements
 // First a list of IR instructions, then a set of variables, that was used in the expression
@@ -145,6 +144,29 @@ codegenExpr := procedure(file, node) {
 	return res;
 };
 
+// Returns an array with 2 or 3 elements
+// 1. List of IR instructions
+// 2. Set of variable names used in statement
+// 3. Procedure that was defined (potentially empty)
+codegenAssign := procedure(file, node, procNames) {
+	global.push("codegenAssign", [["node", node.displayStr()]]);
+	if (!node.is("Assign")) { stop("Start Assumption of codegenAssign broken. Expects node to be a Assign, but received a " + node.id + " instead."); }
+
+	res := [[], {}];
+	if (node.args[2].id == "Proc") {
+		p      := codegenProc(file, node.args[2], procNames, node.args[1].data);
+		res    += [p];
+		res[1] += [inst("Proc", p.name, p.start, p.end)];
+	} else {
+		res := pointAdd(res, codegenExpr(file, node.args[2]));
+	}
+	[res[1], res[2]] := pointAdd([res[1], res[2]], codegenExpr(file, node.args[1]));
+	res[1] += [inst("Assign", om, node.start, node.end)];
+
+	global.pop();
+	return res;
+};
+
 // @Note: Returns a 2D array of instructions. Each instruction is a list containing a 'Var' and optionally also an 'Assign' instruction (including all the instructions for the assignment).
 // @Note: If 'flatList' is true, the return value is a flat 1D list of the same instructions instead
 codegenArgList := procedure(file, ast, flatList := false) {
@@ -156,7 +178,7 @@ codegenArgList := procedure(file, ast, flatList := false) {
 		insts := [];
 		match(node.id) {
 			case "Iden"  : insts += codegenExpr(file, node)[1];
-			case "Assign": insts += codegenAssign(file, node)[1]; // @Study: Could a procedure be assigned here?
+			case "Assign": insts += codegenAssign(file, node, procNames)[1]; // @Study: Could a procedure be assigned here?
 			default      : compileErr(file, node.start, node.end, "Encountered unexpected node in codegenArgList: " + node.id);
 		}
 		if (flatList) { res += insts;   }
@@ -167,36 +189,19 @@ codegenArgList := procedure(file, ast, flatList := false) {
 	return res;
 };
 
-// Returns an array with 2 or 3 elements
-// 1. List of IR instructions
-// 2. Set of variable names used in statement
-// 3. Procedure that was defined (potentially empty)
-codegenAssign := procedure(file, node) {
-	global.push("codegenAssign", [["node", node.displayStr()]]);
-	if (!node.is("Assign")) { stop("Start Assumption of codegenAssign broken. Expects node to be a Assign, but received a " + node.id + " instead."); }
-
-	res := [[], {}];
-	if (node.args[2].id == "Proc") {
-		proc   := codegenProc(file, node.args[2], node.args[1].data);
-		res    += proc;
-		res[1] += [inst("Proc", proc.name, proc.start, proc.end)];
-	} else {
-		res := pointAdd(res, codegenExpr(file, node.args[2]));
+codegenProc := procedure(file, node, procNames, procName := om) {
+	global.push("codegenProc", [["node", node.displayStr()], ["procNames", procNames], ["procName", procName]]);
+	args := codegenArgList(file, node.args[1], false);
+	ir   := codegen(file, node.args[2], procNames);
+	if (procName == om) { procName := "anon_proc"; }
+	if (procName in procNames) {
+		i := 1;
+		while ((procName + i) in procNames) { i += 1; }
+		procName += i;
 	}
-	res    := pointAdd(res, codegenExpr(file, node.args[1]));
-	res[1] += [inst("Assign", om, node.start, node.end)];
-
+	procNames += {procName};
 	global.pop();
-	return res;
-};
-
-codegenProc := procedure(file, node, proc_name := om) {
-	compileErr(file, node.start, node.end, "Codegen for Procedures is not yet implemented");
-	// @TODO:
-	// [ir.code, vars] := codegenBlock(file, node.args[2]);
-	// p := proc(currentVarName)
-	// ir.procs += [p];
-	// currentVarName = om;
+	return proc(procName, args, ir, node.start, node.end);
 };
 
 getVarInits := procedure(vars := {}) {
@@ -208,31 +213,28 @@ getVarInits := procedure(vars := {}) {
 };
 
 // Generate an intermediateRep object for a block of code
-codegenBlock := procedure(file, ast) {
+codegenBlock := procedure(file, ast, procNames) {
 	global.push("codegenBlock", [["file", file], ["ast", ast.displayStr()]]);
 	if (!ast.is("Block")) { stop("Start Assumption of codegenBlock broken. Expects ast to be a Block, but received a " + ast.id + " instead."); }
 
-	ir             := intermediateRep();
-	vars           := {};
-	currentVarName := om;
-
+	ir := intermediateRep();
 	for (node in ast.args) {
 		// global.p("codegenBlock - node: " + node.id);
 		match(node.id) {
 			case "Block":
-				block    := codegenBlock(file, node);
-				ir.code  += block[1].code;
-				ir.procs += block[1].procs;
-				vars     += block[2];
+				block    := codegenBlock(file, node, procNames);
+				ir.code  += block.code;
+				ir.procs += block.procs;
+				ir.vars  += block.vars;
 			case "Ret":
 				expr    := codegenExpr(file, node.args[1]);
 				ir.code += expr[1];
-				vars    += expr[2];
+				ir.vars += expr[2];
 				ir.code += [inst("Ret", om, node.start, node.end)];
 			case "Assign":
-				t       := codegenAssign(file, node);
+				t       := codegenAssign(file, node, procNames);
 				ir.code += t[1];
-				vars    += t[2];
+				ir.vars += t[2];
 				if (#t == 3) { ir.procs += [t[3]]; }
 			case "ArgList":
 				// @TODO: This is probably not correct, because ir.code should be a 1D list and codegenArgList returns a 2D List here...
@@ -240,19 +242,19 @@ codegenBlock := procedure(file, ast) {
 			case "Proc":
 				// If the Proc appears here, it is never assigned and can thus never be called
 				// We can therefore safely ignore the procedure
-				// ir.procs += codegenProc(file, node);
+				// ir.procs += [codegenProc(file, node)];
 			case "If":
-				label        := global.labelCounter.get();
-				body         := codegenBlock(file, node.args[2]);
-				body[1].code += [inst("Label", label, node.end, node.end)];
-				vars         += body[2];
+				label     := global.labelCounter.get();
+				body      := codegenBlock(file, node.args[2], procNames);
+				body.code += [inst("Label", label, node.end, node.end)];
+				ir.vars   += body.vars;
 
 				cond     := codegenExpr(file, node.args[1]);
-				vars     += cond[2];
+				ir.vars  += cond[2];
 				ir.code  += cond[1];
 				ir.code  += [inst("CondJmp", label, node.start, node.end)];
-				ir.code  += body[1].code;
-				ir.procs += body[1].procs;
+				ir.code  += body.code;
+				ir.procs += body.procs;
 			case "Else":
 				prevLabel := ir.code[#ir.code];
 				ir.code   := ir.code[1..#ir.code-1];
@@ -263,20 +265,20 @@ codegenBlock := procedure(file, ast) {
 				} else {
 					body := node.args[1];
 				}
-				body         := codegenBlock(file, body);
-				vars         += body[2];
-				label        := global.labelCounter.get();
-				body[1].code += [inst("Label", label, node.end, node.end)];
-				ir.code      += [inst("Jmp", label, node.start, node.end)];
-				ir.code      += [prevLabel];
+				body      := codegenBlock(file, body, procNames);
+				ir.vars   += body.vars;
+				label     := global.labelCounter.get();
+				body.code += [inst("Label", label, node.end, node.end)];
+				ir.code   += [inst("Jmp", label, node.start, node.end)];
+				ir.code   += [prevLabel];
 				if (cond != om) {
 					cond    := codegenExpr(file, cond);
-					vars    += cond[2];
+					ir.vars += cond[2];
 					ir.code += cond[1];
 					ir.code += [inst("CondJmp", label, node.start, node.end)];
 				}
-				ir.code  += body[1].code;
-				ir.procs += body[1].procs;
+				ir.code  += body.code;
+				ir.procs += body.procs;
 			case "Class":
 				compileErr(file, node.start, node.end, "Codegen for Classes is not yet implemented");
 			case "Static":
@@ -290,16 +292,18 @@ codegenBlock := procedure(file, ast) {
 			default:
 				expr    := codegenExpr(file, node);
 				ir.code += expr[1];
-				vars    += expr[2];
+				ir.vars += expr[2];
 		}
 	}
 
 	global.pop();
-	return [ir, vars];
+	return ir;
 };
 
-codegen := procedure(file, ast) {
-	[ir, vars] := codegenBlock(file, ast);
-	ir.code := getVarInits(vars) + ir.code;
+codegen := procedure(file, ast, procNames := {}) {
+	global.push("codegen", [["ast", ast.displayStr()], ["procNames", procNames]]);
+	ir        := codegenBlock(file, ast, procNames);
+	ir.code   := getVarInits(ir.vars) + ir.code;
+	global.pop();
 	return ir;
 };

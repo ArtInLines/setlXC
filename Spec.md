@@ -184,15 +184,15 @@ typedef struct inst {
 } inst;
 
 typedef struct procedure {
-	string   name;     // Potentially useful for debugging
-	inst     args[][]; // List of arguments, each of which is a list of 'Var' and 'Assign' insts
-	string   vars[];   // Variables (aside from arguments) that are used in the function
-	inst     code[];   // Actual operations in the procedure
-	loc      start;
-	loc      end;
+	string          name;     // Potentially useful for debugging
+	inst            args[][]; // List of arguments, each of which is a list of 'Var' and 'Assign' insts
+	intermediateRep ir;   // Actual operations in the procedure
+	loc             start;
+	loc             end;
 } proc;
 
 typedef struct intermediateRep {
+	string vars[];
 	proc   procs[];
 	inst   code[];
 } intermediateRep;

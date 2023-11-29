@@ -6,26 +6,24 @@ class irToCVars() {
 	structPrefix := "__struct_";
 	valStruct    := structPrefix + "Value";
 	varPrefix    := "__stlx_";
+	procPrefix   := "__proc_";
+	enumPrefix   := "__enum_Type_";
 	assignedVars := {};
 	varCounter   := counter(varPrefix);
 	getVarName   := procedure(instr) {
 		if (startsWith(instr.data, varPrefix)) { return instr.data; }
 		else { return varPrefix + instr.data; }
 	};
-	enumPrefix   := procedure(enumName) {
-		return "__enum_" + enumName + "_";
-	};
 }
 
 makeListValLiteral := procedure(len, toCVars) {
-	return "{.type = " + toCVars.enumPrefix("Type") + "List" + ", .data = {.l = ail_da_with_cap(char, sizeof(" + toCVars.valStruct + ") * " + len + ")}}";
+	return "{.type = " + toCVars.enumPrefix + "List" + ", .data = {.l = ail_da_with_cap(char, sizeof(" + toCVars.valStruct + ") * " + len + ")}}";
 };
 
 // @Note: returns an array with 2 values (first the value that can be used in any expression and then a string for statements that need to come before using the first value)
 makeValueStruct := procedure(file, name, instr, toCVars, len := om, reassigns := false) {
 	global.push("makeValueStruct", [["instr", instr.toStr()]]);
 	if (instr.className() != "inst") { stop("makeValueStruct Start Assumption broken"); }
-	typeEnum := toCVars.enumPrefix("Type");
 	var := "";
 	if (!reassigns) { var += toCVars.valStruct + " "; }
 	var += name + " = ";
@@ -36,15 +34,17 @@ makeValueStruct := procedure(file, name, instr, toCVars, len := om, reassigns :=
 			var += toCVars.getVarName(instr) + ";\n";
 		case "Str":
 			// @TODO: Escape certain characters in string
-			var += "{.type = " + typeEnum + "Str" + ", .data = {.s = \"" + instr.data + "\"}};\n";
+			var += "{.type = " + toCVars.enumPrefix + "Str" + ", .data = {.s = \"" + instr.data + "\"}};\n";
 		case "Int":
-			var += "{.type = " + typeEnum + "Int" + ", .data = {.i = " + instr.data + "}};\n";
+			var += "{.type = " + toCVars.enumPrefix + "Int" + ", .data = {.i = " + instr.data + "}};\n";
 		case "Float":
-			var += "{.type = " + typeEnum + "Float" + ", .data = {.f = " + instr.data + "}};\n";
+			var += "{.type = " + toCVars.enumPrefix + "Float" + ", .data = {.f = " + instr.data + "}};\n";
 		case "Bool":
-			var += "{.type = " + typeEnum + "Bool" + ", .data = {.b = " + instr.data + "}};\n";
+			var += "{.type = " + toCVars.enumPrefix + "Bool" + ", .data = {.b = " + instr.data + "}};\n";
 		case "List":
 			var += makeListValLiteral(len, toCVars) + ";\n";
+		case "Proc":
+			var += "{.type = " + toCVars.enumPrefix + "Proc" + ", .data = {.x = &" + toCVars.procPrefix + instr.data + "}};\n";
 		case "Om":
 			var += "{0};\n";
 		default:
@@ -75,7 +75,7 @@ irCodeToC := procedure(file, code, toCVars) {
 				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
 				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
 				res   += var;
-				opRes += "__eq_values(";
+				opRes += "__builtin_stlx_eq_values(";
 				opRes += name;
 				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
 				res   += var;
@@ -89,7 +89,7 @@ irCodeToC := procedure(file, code, toCVars) {
 				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
 				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
 				res   += var;
-				opRes += "__logical_not(__eq_values(";
+				opRes += "__builtin_stlx_logical_not(__builtin_stlx_eq_values(";
 				opRes += name;
 				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
 				res   += var;
@@ -103,7 +103,7 @@ irCodeToC := procedure(file, code, toCVars) {
 				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
 				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
 				res   += var;
-				opRes += "__ge_values(";
+				opRes += "__builtin_stlx_ge_values(";
 				opRes += name;
 				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
 				res   += var;
@@ -117,7 +117,7 @@ irCodeToC := procedure(file, code, toCVars) {
 				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
 				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
 				res   += var;
-				opRes += "__le_values(";
+				opRes += "__builtin_stlx_le_values(";
 				opRes += name;
 				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
 				res   += var;
@@ -131,7 +131,7 @@ irCodeToC := procedure(file, code, toCVars) {
 				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
 				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
 				res   += var;
-				opRes += "__gt_values(";
+				opRes += "__builtin_stlx_gt_values(";
 				opRes += name;
 				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
 				res   += var;
@@ -145,7 +145,7 @@ irCodeToC := procedure(file, code, toCVars) {
 				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
 				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
 				res   += var;
-				opRes += "__lt_values(";
+				opRes += "__builtin_stlx_lt_values(";
 				opRes += name;
 				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
 				res   += var;
@@ -161,7 +161,7 @@ irCodeToC := procedure(file, code, toCVars) {
 				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
 				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
 				res   += var;
-				opRes += "__add_values(";
+				opRes += "__builtin_stlx_add_values(";
 				opRes += name;
 				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
 				res   += var;
@@ -175,7 +175,7 @@ irCodeToC := procedure(file, code, toCVars) {
 				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
 				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
 				res   += var;
-				opRes += "__sub_values(";
+				opRes += "__builtin_stlx_sub_values(";
 				opRes += name;
 				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
 				res   += var;
@@ -191,7 +191,7 @@ irCodeToC := procedure(file, code, toCVars) {
 				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
 				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
 				res   += var;
-				opRes += "__mul_values(";
+				opRes += "__builtin_stlx_mul_values(";
 				opRes += name;
 				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
 				res   += var;
@@ -207,7 +207,7 @@ irCodeToC := procedure(file, code, toCVars) {
 				opRes  := toCVars.valStruct + " " + tmpVar + " = ";
 				[name, var] := makeValueStruct(file, getVar(), op1, toCVars);
 				res   += var;
-				opRes += "__div_values(";
+				opRes += "__builtin_stlx_div_values(";
 				opRes += name;
 				[name, var] := makeValueStruct(file, getVar(), op2, toCVars);
 				res   += var;
@@ -240,7 +240,7 @@ irCodeToC := procedure(file, code, toCVars) {
 				opRes   := toCVars.valStruct + " " + tmpVar + " = ";
 				[name, var] := makeValueStruct(file, getVar(), operand, toCVars);
 				res     += var;
-				opRes   += "__neg_value(" + name + ");\n";
+				opRes   += "__builtin_stlx_neg_value(" + name + ");\n";
 				res     += opRes;
 			case "Len":
 				coll    := st.pop();
@@ -273,8 +273,8 @@ irCodeToC := procedure(file, code, toCVars) {
 				res    += hivar;
 				loname := getVar();
 				hiname := getVar();
-				res    += "u32 " + loname + " = __stlx_get_idx(" + loTmp + ", " + toCVars.getVarName(coll) + ");\n";
-				res    += "u32 " + hiname + " = __stlx_get_idx(" + hiTmp + ", " + toCVars.getVarName(coll) + ");\n";
+				res    += "u32 " + loname + " = __builtin_stlx_get_idx(" + loTmp + ", " + toCVars.getVarName(coll) + ");\n";
+				res    += "u32 " + hiname + " = __builtin_stlx_get_idx(" + hiTmp + ", " + toCVars.getVarName(coll) + ");\n";
 				len    := getVar();
 				res    += "u32 " + len + " = " + hiname + " - " + loname + " + 1;\n";
 				res    += toCVars.valStruct + " " + out + " = " + makeListValLiteral(len, toCVars) + ";\n";
@@ -288,32 +288,39 @@ irCodeToC := procedure(file, code, toCVars) {
 				[idxName, idxVar] := makeValueStruct(file, getVar(), idx, toCVars);
 				res  += idxVar;
 				res  += toCVars.valStruct + " " + ret + " = ";
-				res  += "((" + toCVars.valStruct + " *) " + toCVars.getVarName(coll) + ".data.l.data)[__stlx_get_idx(" + idxName + ", " + toCVars.getVarName(coll) + ")];\n";
+				res  += "((" + toCVars.valStruct + " *) " + toCVars.getVarName(coll) + ".data.l.data)[__builtin_stlx_get_idx(" + idxName + ", " + toCVars.getVarName(coll) + ")];\n";
 			case "Property":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Property' to C code is not yet implemented");
 			case "Call":
-				var    := toCVars.getVarName(st.pop());
+				name   := toCVars.getVarName(st.pop());
 				args   := [];
 				arglen := st.pop().data;
 				while (arglen > 0) {
 					args   += [st.pop()];
 					arglen -= 1;
 				}
+				argc := getVar();
+				argv := getVar();
 				ret  := getVar();
 				st.push(inst("Var", ret, instr.start, instr.end));
-				call := toCVars.valStruct + " " + ret + " = ";
-				call += var + "(";
+
+				call := "u8 " + argc + " = " + #args + ";\n";
+				call += toCVars.valStruct + " " + argv + "[256] = {0};\n";
 				for (i in {1..#args}) {
-					if (i != 1) { call += ", "; }
+					call += argv + "[" + (i-1) + "] = ";
 					if (args[i].id == "Var") {
 						call += toCVars.getVarName(args[i]);
 					} else {
-						[name, var] := makeValueStruct(file, getVar(), args[i], toCVars);
-						call += name;
+						[n, var] := makeValueStruct(file, getVar(), args[i], toCVars);
+						call += n;
 						res  += var;
 					}
+					call += ";\n";
 				}
-				call += ");\n";
+
+				call += toCVars.valStruct + " " + ret + " = ";
+				call += "__builtin_stlx_get_funcptr(" + name + ")";
+				call += "(" + argc + ", " + argv + ");\n";
 				res  += call;
 			case "NativeCall":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'NativeCall' to C code is not yet implemented");
@@ -345,8 +352,6 @@ irCodeToC := procedure(file, code, toCVars) {
 					res += var;
 					res += "((" + toCVars.valStruct + " *) " + lname + ".data.l.data)[" + (#args - i) + "] = " + name + ";\n";
 				}
-			case "Proc":
-				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Proc' to C code is not yet implemented");
 			case "Block":
 				compileErr(file, instr.start, instr.end, "Transforming IR instruction 'Block' to C code is not yet implemented");
 			default:
@@ -365,6 +370,59 @@ irCodeToC := procedure(file, code, toCVars) {
 	return res;
 };
 
+// Returns a list of 2 elements
+// 1. string for function
+// 2. list of signatures (without ';')
+irProcToC := procedure(file, p) {
+	// @TODO: Collect prcedure signatures
+	global.push("irProcToC", [["p", p.displayStr()]]);
+	toCVars := irToCVars();
+
+	signatures := [];
+	res := "";
+	for (innerProc in p.ir.procs) { pointAdd([res, signatures], irProcToC(file, innerProc)); }
+
+	procCode   := toCVars.valStruct + " " + toCVars.procPrefix + p.name + "(u8 argc, " + toCVars.valStruct + " *argv)";
+	signatures += [procCode];
+	procCode   += "\n{\n";
+
+	minArgs := 0;
+	for (arg in p.args) {
+		if (#arg == 2) { break; }
+		minArgs += 1;
+	}
+	if (#p.args > 0) {
+		procCode += "\tAIL_ASSERT(argc <= " + #p.args + ");\n";
+		if (minArgs > 0) {
+			procCode += "\tAIL_ASSERT(argc >= " + minArgs + ");\n";
+		}
+	} else {
+		procCode += "\t(void)argc;\n";
+		procCode += "\t(void)argv;\n";
+	}
+
+	for (i in {1..#p.args}) {
+		arg := p.args[i];
+		procCode += "\t" + toCVars.valStruct + " " + arg[1] + ";\n";
+		if (i < minArgs) {
+			procCode += arg[1] + " = argv[" + (i-1) + "];\n";
+		} else {
+			procCode += "\tif (argc >= " + i + ") " + arg[1] + " = argv[" + (i-1) + "];\n";
+			procCode += "\telse {\n";
+			procCode += addIndents(irCodeToC(file, [arg[2]], toCVars), 2);
+			procCode += "\t}\n";
+		}
+	}
+
+	procCode   += addIndents(irCodeToC(file, p.ir.code, toCVars), 1);
+	procCode   += "\treturn (" + toCVars.valStruct + ") {0};\n";
+	procCode   += "}\n\n";
+	res += procCode;
+
+	global.pop();
+	return [res, signatures];
+};
+
 // @TODO
 irToC := procedure(file, ir) {
 	// @TODO: Deal with procedures
@@ -373,6 +431,22 @@ irToC := procedure(file, ir) {
 	res := "";
 	res += "#include \"setlX.c\"\n";
 	res += "\n";
+
+	for (builtin in global.builtinProcs) {
+		res += toCVars.valStruct + " " + toCVars.varPrefix + builtin + " = ";
+		res += "{ .type = " + toCVars.enumPrefix + "Proc, .data = { .x = &__builtin_stlx_" + builtin + " }};\n";
+	}
+	res += "\n";
+
+	signatures := [];
+	procRes    := "";
+	for (p in ir.procs) {
+		[r, s]     := irProcToC(file, p);
+		procRes    += r;
+		signatures += s;
+	}
+	res += join(signatures, ";\n") + ";\n\n";
+	res += procRes;
 
 	res += "int main(void)\n{\n";
 	res += addIndents(irCodeToC(file, ir.code, toCVars), 1);
