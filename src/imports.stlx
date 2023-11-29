@@ -1,6 +1,8 @@
 load("util.stlx");
 load("parser.stlx");
 
+// @Note: Checks certain conditions while traversing the code to look for `load` statements
+// One of these conditions is that builtin functions may not be reassigned
 // @Note: Returns an array with the modified ast and a list of filenames that were imported
 addImports := procedure(file, ast, importedFiles := []) {
 	global.push("addImports", [["file", file], ["ast", ast.displayStr()], ["importedFiles", importedFiles]]);
@@ -10,8 +12,8 @@ addImports := procedure(file, ast, importedFiles := []) {
 	importedFiles := [file] + importedFiles;
 
 	traverse := closure(node, outerScope) {
-		if (node.is("Assign") && node.args[1].is("Iden") && node.args[1].data == "load") {
-			compileErr(file, node.start, "load := ...", "Overwriting the builtin function 'load' is not supported");
+		if (node.is("Assign") && node.args[1].is("Iden") && node.args[1].data in global.builtinProcs) {
+			compileErr(file, node.start, node.args[1].data + " := ...", "Overwriting the builtin function '" + node.args[1].data + "' is not supported");
 		}
 		else if (node.is("Call") && node.data.is("Iden") && node.data.data == "load") {
 			if (!outerScope) {

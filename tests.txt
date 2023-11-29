@@ -88,22 +88,29 @@ om
 # failTests
 ## dynamic-import
 The filename provided to load(...) must be a string literal. Dynamic imports are not supported:
-../failTests/dynamic-import.stlx:2:1: 'load(file_name);'
+../failTests\dynamic-import.stlx:2:1: 'load(file_name);'
 Compiler Error
-## fulll-range
+## full-range
+...
 ## func-scope-import
 load(...) can only be called from the outermost file scope:
-../failTests/func-scope-import.stlx:2:2: 'load("illegal_scope_for_load.stlx");'
+../failTests\func-scope-import.stlx:2:2: 'load("illegal_scope_for_load.stlx");'
 Compiler Error
 ## import-overwrite
 Overwriting the builtin function 'load' is not supported:
-../failTests/import-overwrite.stlx:1:1: 'load := ...'
+../failTests\import-overwrite.stlx:1:1: 'load := ...'
 Compiler Error
 ## literal-indexing
+...
 ## literal-ranges
+...
 ## missing-file-import
 An Error occurred while adding imports: File 'failTests/this_file_does_not_exist.stlx' does not exist.:
-../failTests/missing-file-import.stlx:1:1: 'load("this_file_does_not_exist.stlx");'
+../failTests\missing-file-import.stlx:1:1: 'load("this_file_does_not_exist.stlx");'
 Compiler Error
 ## self-import
+load(...) can only be called from the outermost file scope:
+../failTests\self-import.stlx:1:7: 'load("self-import.stlx"))'
+Compiler Error
 ## zero-index
+...

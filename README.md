@@ -41,6 +41,14 @@ The Interpreter lets you declare classes inside of procedures. However, the Inte
 
 The Compiler instead fails and returns a compilation-error when you declare a class in a procedure.
 
+#### Reassigning builtin Functions
+
+The interpreter allows you to reassign any variable, including builtin functions. Doing so is certainly bad style and makes the code rather unreadable.
+
+There is only one case where I can imagine this being useful: A function that logs some info to stdout with print, could be made to log the info to a file, by redefining the print function.
+
+However, since this is bad style (and due to design decisions made when writing the compiler, that made supporting this a bit more difficult), the compiler forbids reassigning builtin functions.
+
 #### Importing seperate files
 
 To import code from separate files in SetlX, you need to use the `load(file_name)` function. When using the interpreter, this function acts as a function like any other. Among other things, this means that you can overwrite the `load` function and can also dynamically load any file at any time.
@@ -50,3 +58,15 @@ The Compiler does not allow this. If it were to allow it, then every compiled bi
 The Compiler thus forbids assigning any value to the variable `load` and requires the file_name to be a string literal. Lastly, calls to the `load` function are only allowed in the outermost scope.
 
 Furthermore, the Compiler also makes sure to import any file no more than once, unlike the Interpreter. You are allowed to import the same file several times, yet it will only be loaded and included the first time.
+
+#### Builtin Execute
+
+The compiler does not provide the builtin function `execute`, which executes and evaluates an arbitrary SetlX expression. This kind of function cannot be practically implemented in a compiled language and is thus simply ignored here.
+
+#### loadLibrary
+
+The Interpreter offers the builtin `loadLibrary` function, which loads function from a specific library. This library is not made up of Java-Code that is interoperable with the Interpreter. Since I did not feel like re-implementing each library in C, I decided to just leave out all libraries.
+
+#### Plotting
+
+For the same reason as presented in [loadLibrary](#loadlibrary), I decided to leave out plotting for this compiler.
